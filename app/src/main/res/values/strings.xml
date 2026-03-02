@@ -11,6 +11,10 @@
     <string name="onboarding_folder_desc">Choose where EmuLnk stores its data.</string>
     <string name="onboarding_select_folder">Select Folder</string>
     <string name="onboarding_change_folder">Change Folder</string>
+    <string name="onboarding_overlay_title">Overlay Permission</string>
+    <string name="onboarding_overlay_desc">Required for floating widgets over your game.</string>
+    <string name="onboarding_overlay_grant">Grant Permission</string>
+    <string name="onboarding_overlay_granted">Permission Granted</string>
     <string name="next">Next</string>
     <string name="back">Back</string>
     <string name="finish_setup">Finish Setup</string>
@@ -55,4 +59,22 @@
     <string name="settings_repo_title">Repository URL</string>
     <string name="settings_repo_desc">Where themes and configs are downloaded from</string>
     <string name="settings_reset_default">Reset to default</string>
+
+    <!-- Pairing -->
+    <string name="pair_with_overlay">Pair with overlay?</string>
+    <string name="pair_with_theme">Pair with theme?</string>
+    <string name="pair_none">None (standalone)</string>
+    <string name="pair_set_default">Set as default for %1$s</string>
+    <string name="pair_launch">Launch</string>
+
+    <!-- Overlay -->
+    <string name="overlay_active">Overlay Active</string>
+    <string name="overlay_stop">Stop Overlay</string>
+    <string name="overlay_instructions">Widgets are floating on top of your game.\nLong-press any widget to enter edit mode.\nUse the notification to exit.</string>
+    <string name="overlay_notification_title">EmuLnk Overlay Active</string>
+    <string name="overlay_notification_text">Widgets are running on top of your game</string>
+    <string name="overlay_permission_required">Overlay permission required for widgets</string>
+    <string name="overlay_edit_layout">Edit Layout</string>
+    <string name="overlay_done">Done</string>
+    <string name="overlay_reset">Reset</string>
 </resources>

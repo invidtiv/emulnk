@@ -1,6 +1,15 @@
 package com.emulnk.model
 
 /**
+ * Theme type constants.
+ */
+object ThemeType {
+    const val THEME = "theme"
+    const val OVERLAY = "overlay"
+    const val BUNDLE = "bundle"
+}
+
+/**
  * Defines the Visual Theme.
  */
 data class ThemeConfig(
@@ -10,8 +19,14 @@ data class ThemeConfig(
     val targetConsole: String? = null, // e.g., "GCN", "WII"
     val hideOverlay: Boolean = false, // Hides overlay buttons when active
     val assetsPath: String? = null,
-    val settings: List<ThemeSettingSchema>? = emptyList()
+    val settings: List<ThemeSettingSchema>? = emptyList(),
+    val type: String? = null,    // "theme", "overlay", or "bundle" — null defaults to "theme" (Gson bypasses Kotlin defaults)
+    val widgets: List<WidgetConfig>? = null // Widget definitions for overlay-type themes
 )
+
+/** Resolves the effective type, defaulting null to "theme". */
+val ThemeConfig.resolvedType: String
+    get() = type ?: ThemeType.THEME
 
 data class ThemeMeta(
     val name: String,

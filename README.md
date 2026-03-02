@@ -25,7 +25,7 @@
 
 ## What It Does
 
-EmuLnk connects to emulators over UDP, reads game memory in real time, and renders themed overlays — health bars, inventories, maps, enemy stats — on your second screen. Themes are HTML/CSS/JS WebViews driven by live data defined in JSON profiles.
+EmuLnk connects to emulators over UDP, reads game memory in real time, and renders themed overlays (health bars, inventories, maps, enemy stats) on your second screen, or as floating widgets on top of the game. Themes are HTML/CSS/JS WebViews driven by live data defined in JSON profiles.
 
 <p align="center">
   <em>Screenshots coming soon</em>
@@ -70,17 +70,17 @@ flowchart TB
     style THEME fill:#252142,stroke:#00E5FF,color:#e0e0e0
 ```
 
-1. **Detect** — Sends a UDP request, emulator responds with a platform-prefixed serial (e.g. `SNES:SUPER METROID`)
-2. **Match** — Serial maps to a profile defining memory addresses and data types
-3. **Poll** — Data points are read from emulator memory each frame
-4. **Render** — Live data is pushed to the theme WebView via JavaScript bridge
+1. **Detect**: Sends a UDP request, emulator responds with a platform-prefixed serial (e.g. `SNES:SUPER METROID`)
+2. **Match**: Serial maps to a profile defining memory addresses and data types
+3. **Poll**: Data points are read from emulator memory each frame
+4. **Render**: Live data is pushed to the theme WebView (full-screen dashboard or floating overlay widgets) via JavaScript bridge
 
 ## Installation
 
 Download the latest APK from [Releases](https://github.com/EmuLnk/emulnk/releases) or import the full EmuLnk suite into [Obtainium](https://github.com/ImranR98/Obtainium):
 
 > [!TIP]
-> **[`obtainium.json`](obtainium.json)** — Includes EmuLnk app + all emulator forks + repo tracking, grouped under one category.
+> **[`obtainium.json`](obtainium.json)**: Includes EmuLnk app + all emulator forks + repo tracking, grouped under one category.
 
 ## Building from Source
 

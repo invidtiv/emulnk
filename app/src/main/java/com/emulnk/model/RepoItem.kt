@@ -12,6 +12,7 @@ data class RepoTheme(
     val version: String? = "1.0.0",
     val description: String = "",
     val targetProfileId: String,
+    val type: String? = "theme", // "theme" or "overlay"
     val minAppVersion: Int? = 1,
     val previewUrl: String? = null,
     val downloadUrl: String? = null

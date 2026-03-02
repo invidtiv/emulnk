@@ -25,6 +25,8 @@ import com.emulnk.R
 import com.emulnk.model.RepoIndex
 import com.emulnk.model.RepoTheme
 import com.emulnk.model.ThemeConfig
+import com.emulnk.model.ThemeType
+import com.emulnk.model.resolvedType
 import com.emulnk.ui.theme.*
 
 @Composable
@@ -33,6 +35,7 @@ fun GalleryScreen(
     isSyncing: Boolean,
     allInstalledThemes: List<ThemeConfig>,
     appVersionCode: Int,
+    isDualScreen: Boolean,
     onBack: () -> Unit,
     onImportTheme: () -> Unit,
     onSelectTheme: (ThemeConfig) -> Unit,
@@ -73,6 +76,7 @@ fun GalleryScreen(
                 allInstalledThemes = allInstalledThemes,
                 isSyncing = isSyncing,
                 appVersionCode = appVersionCode,
+                isDualScreen = isDualScreen,
                 onBack = onBack,
                 onSelectTheme = onSelectTheme,
                 onDownloadTheme = onDownloadTheme,
@@ -82,6 +86,7 @@ fun GalleryScreen(
                 repoIndex = repoIndex,
                 allInstalledThemes = allInstalledThemes,
                 isSyncing = isSyncing,
+                isDualScreen = isDualScreen,
                 onDeleteTheme = onDeleteTheme
             )
         }
@@ -94,6 +99,7 @@ private fun CommunityThemeList(
     allInstalledThemes: List<ThemeConfig>,
     isSyncing: Boolean,
     appVersionCode: Int,
+    isDualScreen: Boolean,
     onBack: () -> Unit,
     onSelectTheme: (ThemeConfig) -> Unit,
     onDownloadTheme: (RepoTheme) -> Unit,
@@ -104,8 +110,11 @@ private fun CommunityThemeList(
             CircularProgressIndicator(color = BrandPurple)
         }
     } else {
+        val filteredThemes = if (isDualScreen) repoIndex.themes
+            else repoIndex.themes.filter { (it.type ?: "theme") == ThemeType.OVERLAY }
+
         LazyVerticalGrid(columns = GridCells.Fixed(1), verticalArrangement = Arrangement.spacedBy(EmuLnkDimens.spacingLg)) {
-            items(repoIndex.themes) { theme ->
+            items(filteredThemes) { theme ->
                 val minVersion = theme.minAppVersion ?: 1
                 val isIncompatible = minVersion > appVersionCode
                 val localTheme = allInstalledThemes.find { it.id == theme.id }
@@ -127,7 +136,18 @@ private fun CommunityThemeList(
                         }
                         Spacer(modifier = Modifier.width(EmuLnkDimens.spacingLg))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(theme.name, fontWeight = FontWeight.Bold, color = TextPrimary)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(EmuLnkDimens.spacingSm)) {
+                                Text(theme.name, fontWeight = FontWeight.Bold, color = TextPrimary)
+                                val themeType = theme.type ?: "theme"
+                                val badgeColor = when (themeType) {
+                                    ThemeType.OVERLAY -> BrandCyan
+                                    ThemeType.BUNDLE -> StatusWarning
+                                    else -> BrandPurple
+                                }
+                                Box(modifier = Modifier.background(badgeColor, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                                    Text(themeType.uppercase(), fontSize = 8.sp, fontWeight = FontWeight.Bold, color = SurfaceBase)
+                                }
+                            }
                             Text("v$remoteVersion by ${theme.author}", fontSize = 11.sp, color = TextSecondary)
                             if (isIncompatible) {
                                 Text(stringResource(R.string.requires_app_version, minVersion), fontSize = 11.sp, color = StatusError, fontWeight = FontWeight.Bold)
@@ -198,10 +218,15 @@ private fun LocalThemeList(
     repoIndex: RepoIndex?,
     allInstalledThemes: List<ThemeConfig>,
     isSyncing: Boolean,
+    isDualScreen: Boolean,
     onDeleteTheme: (String) -> Unit
 ) {
     val repoThemeIds = repoIndex?.themes?.map { it.id }?.toSet() ?: emptySet()
-    val localOnlyThemes = allInstalledThemes.filter { it.id !in repoThemeIds }
+    val localOnlyThemes = allInstalledThemes
+        .filter { it.id !in repoThemeIds }
+        .let { themes ->
+            if (isDualScreen) themes else themes.filter { it.resolvedType == ThemeType.OVERLAY }
+        }
 
     if (localOnlyThemes.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -219,6 +244,15 @@ private fun LocalThemeList(
                         Column(modifier = Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(EmuLnkDimens.spacingSm)) {
                                 Text(theme.meta.name, fontWeight = FontWeight.Bold, color = TextPrimary)
+                                val localType = theme.resolvedType
+                                val badgeColor = when (localType) {
+                                    ThemeType.OVERLAY -> BrandCyan
+                                    ThemeType.BUNDLE -> StatusWarning
+                                    else -> BrandPurple
+                                }
+                                Box(modifier = Modifier.background(badgeColor, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                                    Text(localType.uppercase(), fontSize = 8.sp, fontWeight = FontWeight.Bold, color = SurfaceBase)
+                                }
                                 Box(modifier = Modifier.background(StatusWarning, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) {
                                     Text(stringResource(R.string.imported), fontSize = 9.sp, fontWeight = FontWeight.Bold, color = SurfaceBase)
                                 }

@@ -30,6 +30,8 @@ import androidx.compose.ui.text.TextStyle
 import coil.compose.AsyncImage
 import com.emulnk.model.AppConfig
 import com.emulnk.model.ThemeConfig
+import com.emulnk.model.ThemeType
+import com.emulnk.model.resolvedType
 import java.io.File
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -79,15 +81,38 @@ fun ThemeCard(config: ThemeConfig, isDefault: Boolean, rootPath: String, onClick
                         color = TextPrimary.copy(alpha = 0.1f)
                     )
                 }
-                if (isDefault) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(EmuLnkDimens.spacingSm)
-                            .background(BrandPurple, CircleShape)
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Text("DEFAULT", color = TextPrimary, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(EmuLnkDimens.spacingSm),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (config.resolvedType == ThemeType.OVERLAY) {
+                        Box(
+                            modifier = Modifier
+                                .background(BrandCyan, CircleShape)
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text("OVERLAY", color = SurfaceBase, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    if (config.resolvedType == ThemeType.BUNDLE) {
+                        Box(
+                            modifier = Modifier
+                                .background(StatusWarning, CircleShape)
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text("BUNDLE", color = SurfaceBase, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    if (isDefault) {
+                        Box(
+                            modifier = Modifier
+                                .background(BrandPurple, CircleShape)
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text("DEFAULT", color = TextPrimary, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }

@@ -104,6 +104,35 @@ object BridgeConstants {
     const val DEV_SOUND_CLEANUP_AGE_MS = 60_000L
 }
 
+object OverlayConstants {
+    /** Long-press threshold to enter edit mode in milliseconds */
+    const val LONG_PRESS_THRESHOLD_MS = 800L
+
+    /** Notification channel ID for overlay service */
+    const val NOTIFICATION_CHANNEL_ID = "emulnk_overlay"
+
+    /** Notification ID for overlay service foreground notification */
+    const val NOTIFICATION_ID = 1001
+
+    /** Minimum drag distance to consider a move (pixels) */
+    const val DRAG_THRESHOLD_PX = 10
+
+    /** Snap-to-edge threshold in dp */
+    const val SNAP_THRESHOLD_DP = 8
+
+    /** Semi-transparent scrim color (80% SurfaceBase) */
+    const val EDIT_SCRIM_COLOR = 0xCC0E0C1C
+
+    /** Border corner radius in dp */
+    const val EDIT_BORDER_RADIUS_DP = 8
+
+    /** Selected widget border width in dp */
+    const val EDIT_BORDER_SELECTED_WIDTH_DP = 2
+
+    /** Unselected widget border width in dp */
+    const val EDIT_BORDER_NORMAL_WIDTH_DP = 1
+}
+
 object MathConstants {
     /** Maximum formula expression length */
     const val MAX_EXPRESSION_LENGTH = 256

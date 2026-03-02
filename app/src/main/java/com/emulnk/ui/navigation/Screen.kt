@@ -5,4 +5,5 @@ sealed class Screen {
     object Home : Screen()
     object Gallery : Screen()
     object Dashboard : Screen()
+    object Overlay : Screen()
 }

@@ -7,6 +7,7 @@ import com.emulnk.BuildConfig
 import com.emulnk.model.AppConfig
 import com.emulnk.model.ConsoleConfig
 import com.emulnk.model.ProfileConfig
+import com.emulnk.model.OverlayLayout
 import com.emulnk.model.ThemeConfig
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -86,12 +87,12 @@ class ConfigManager(private val context: android.content.Context) {
     }
 
     fun getAppConfig(): AppConfig {
-        return if (appConfigFile.exists()) {
+        val config = if (appConfigFile.exists()) {
             try {
                 gson.fromJson(appConfigFile.readText(), AppConfig::class.java)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to parse app_settings.json", e)
-                // Backup corrupted file before returning defaults
+                // Preserve corrupted file for debugging
                 try {
                     val backupFile = File(appConfigFile.parent, "app_settings.json.bak")
                     appConfigFile.copyTo(backupFile, overwrite = true)
@@ -102,6 +103,15 @@ class ConfigManager(private val context: android.content.Context) {
                 AppConfig()
             }
         } else AppConfig()
+
+        // Migrate repo URL from old main branch to feature/overlay branch
+        val oldMainUrl = "https://github.com/EmuLnk/emulnk-repo/archive/refs/heads/main.zip"
+        if (config.repoUrl == oldMainUrl) {
+            val migrated = config.copy(repoUrl = AppConfig().repoUrl)
+            saveAppConfig(migrated)
+            return migrated
+        }
+        return config
     }
 
     fun saveAppConfig(config: AppConfig) {
@@ -221,7 +231,9 @@ class ConfigManager(private val context: android.content.Context) {
 
         return try {
             val json = configFile.readText()
-            gson.fromJson(json, ThemeConfig::class.java).copy(id = folder.name)
+            val config = gson.fromJson(json, ThemeConfig::class.java).copy(id = folder.name)
+            // Gson bypasses Kotlin defaults — normalize null type to "theme"
+            config.copy(type = config.type ?: "theme")
         } catch (e: Exception) {
             Log.e(TAG, "Error parsing theme.json in ${folder.name}", e)
             null
@@ -231,28 +243,27 @@ class ConfigManager(private val context: android.content.Context) {
     fun resolveProfileId(gameId: String): String? {
         if (!profilesDir.exists()) return null
         val files = profilesDir.listFiles { f -> f.extension == "json" } ?: return null
-        for (file in files) {
-            val profile = parseProfile(file) ?: continue
-            // Gson bypasses Kotlin default values — gameIds can be null at runtime
-            if (profile.gameIds?.any { it.equals(gameId, ignoreCase = true) } == true) {
-                return profile.id
-            }
-        }
-        // Fallback: prefix match for truncated IDs (e.g. SNES serials)
+        val profiles = files.mapNotNull { parseProfile(it) }
+
+        // Exact match
+        profiles.find { p ->
+            p.gameIds?.any { it.equals(gameId, ignoreCase = true) } == true
+        }?.let { return it.id }
+
+        // Prefix match for truncated IDs (e.g. SNES serials)
         if (gameId.length >= 6) {
-            for (file in files) {
-                val profile = parseProfile(file) ?: continue
-                if (profile.gameIds?.any {
+            profiles.find { p ->
+                p.gameIds?.any {
                     it.replace(" ", "").startsWith(gameId, ignoreCase = true)
-                } == true) {
-                    return profile.id
-                }
-            }
+                } == true
+            }?.let { return it.id }
         }
-        // Fallback: filename prefix matching (GameCube/Wii style)
-        val baseName = files.map { it.nameWithoutExtension }
+
+        // Filename prefix matching (GameCube/Wii style)
         if (gameId.length >= 3) {
-            baseName.find { gameId.startsWith(it, ignoreCase = true) }?.let { return it }
+            files.map { it.nameWithoutExtension }
+                .find { gameId.startsWith(it, ignoreCase = true) }
+                ?.let { return it }
         }
         return null
     }
@@ -290,6 +301,34 @@ class ConfigManager(private val context: android.content.Context) {
 
         Log.e(TAG, "No profile found for $profileId in ${profilesDir.absolutePath}")
         return null
+    }
+
+    fun saveOverlayLayout(overlayId: String, layout: OverlayLayout) {
+        synchronized(configLock) {
+            try {
+                savesDir.mkdirs()
+                val file = File(savesDir, "${overlayId}_layout.json")
+                val tmpFile = File(savesDir, "${overlayId}_layout.json.tmp")
+                tmpFile.writeText(gson.toJson(layout))
+                if (!tmpFile.renameTo(file)) {
+                    tmpFile.copyTo(file, overwrite = true)
+                    tmpFile.delete()
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to save overlay layout for $overlayId: ${e.message}")
+            }
+        }
+    }
+
+    fun loadOverlayLayout(overlayId: String): OverlayLayout? {
+        val file = File(savesDir, "${overlayId}_layout.json")
+        if (!file.exists()) return null
+        return try {
+            gson.fromJson(file.readText(), OverlayLayout::class.java)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to load overlay layout for $overlayId: ${e.message}")
+            null
+        }
     }
 
     private fun parseProfile(file: File): ProfileConfig? {

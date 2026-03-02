@@ -2,13 +2,13 @@ package com.emulnk.bridge
 
 import android.content.Context
 import android.os.VibrationEffect
-import com.emulnk.BuildConfig
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.webkit.JavascriptInterface
+import com.emulnk.BuildConfig
 import com.emulnk.core.BridgeConstants
+import com.emulnk.core.MemoryService
 import com.emulnk.core.NetworkConstants
-import com.emulnk.ui.viewmodel.MainViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -18,59 +18,54 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
- * JavaScript interface for themes.
+ * JS interface for overlay WebViews.
+ * Provides write, writeVar, runMacro, vibrate, playSound, and log.
+ * Excludes save, exit, openSettings which aren't applicable in the overlay context.
  */
-class EmuLinkBridge(
+class OverlayBridge(
     private val context: Context,
-    private val viewModel: MainViewModel,
+    private val memoryService: MemoryService,
     private val scope: CoroutineScope,
     private val themeId: String,
     private val themesRootDir: File,
     private val devMode: Boolean = false,
     private val devUrl: String = ""
 ) {
-    private val vibrator: Vibrator = (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
+    private val vibrator: Vibrator =
+        (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
 
     @Synchronized
     @JavascriptInterface
     fun write(address: String, size: Int, value: Int) {
         if (!BridgeRateLimiter.checkWriteLimit()) return
-
-        if (size !in BridgeConstants.VALID_WRITE_SIZES) {
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d("EmuLinkBridge", "write() rejected invalid size: $size (valid: ${BridgeConstants.VALID_WRITE_SIZES})")
-            }
-            viewModel.addDebugLog("Error: Invalid write size $size (valid: ${BridgeConstants.VALID_WRITE_SIZES})")
-            return
-        }
+        if (size !in BridgeConstants.VALID_WRITE_SIZES) return
 
         val addr = try {
             address.removePrefix("0x").toLong(16)
-        } catch (e: NumberFormatException) {
-            if (BuildConfig.DEBUG) {
-                android.util.Log.e("EmuLinkBridge", "Invalid hex address: $address", e)
-            }
-            viewModel.addDebugLog("Error: Invalid address format '$address'")
+        } catch (_: NumberFormatException) {
             return
         }
+
         val buffer = ByteBuffer.allocate(size).order(ByteOrder.BIG_ENDIAN)
         when (size) {
             1 -> buffer.put(value.toByte())
             2 -> buffer.putShort(value.toShort())
             4 -> buffer.putInt(value)
         }
-        viewModel.writeMemory(addr, buffer.array())
+        memoryService.writeMemory(addr, buffer.array())
     }
 
     @Synchronized
     @JavascriptInterface
     fun writeVar(varId: String, value: Int) {
         if (!BridgeRateLimiter.checkWriteLimit()) return
-        viewModel.writeVariable(varId, value)
+        memoryService.writeVariable(varId, value)
     }
 
     @JavascriptInterface
-    fun runMacro(macroId: String) = viewModel.runMacro(macroId)
+    fun runMacro(macroId: String) {
+        memoryService.runMacro(macroId) { log(it) }
+    }
 
     @Synchronized
     @JavascriptInterface
@@ -79,14 +74,6 @@ class EmuLinkBridge(
 
         val clampedMs = ms.coerceIn(1, BridgeConstants.VIBRATE_MAX_DURATION_MS)
         vibrator.vibrate(VibrationEffect.createOneShot(clampedMs, VibrationEffect.DEFAULT_AMPLITUDE))
-    }
-
-    @JavascriptInterface
-    fun log(message: String) {
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d("EmuLinkBridge", "JS LOG: $message")
-        }
-        viewModel.addDebugLog(message)
     }
 
     @Synchronized
@@ -104,7 +91,7 @@ class EmuLinkBridge(
         // Path traversal protection
         if (!file.canonicalPath.startsWith(themeDir.canonicalPath + File.separator) &&
             file.canonicalPath != themeDir.canonicalPath) {
-            viewModel.addDebugLog("Error: Sound path traversal blocked: $fileName")
+            log("Error: Sound path traversal blocked: $fileName")
             return
         }
 
@@ -115,7 +102,7 @@ class EmuLinkBridge(
                 try {
                     val baseUrl = devUrl.removeSuffix("/")
                     val soundUrl = "$baseUrl/themes/$themeId/$fileName"
-                    viewModel.addDebugLog("Dev: Fetching sound from $soundUrl")
+                    log("Dev: Fetching sound from $soundUrl")
                     val conn = java.net.URL(soundUrl).openConnection() as java.net.HttpURLConnection
                     var playbackStarted = false
                     var tempFile: File? = null
@@ -128,7 +115,7 @@ class EmuLinkBridge(
                             withContext(Dispatchers.Main) { playLocalSound(tempFile) }
                             playbackStarted = true
                         } else {
-                            viewModel.addDebugLog("Dev: Sound not found at $soundUrl (HTTP ${conn.responseCode})")
+                            log("Dev: Sound not found at $soundUrl (HTTP ${conn.responseCode})")
                         }
                     } finally {
                         conn.disconnect()
@@ -137,11 +124,11 @@ class EmuLinkBridge(
                         }
                     }
                 } catch (e: Exception) {
-                    viewModel.addDebugLog("Dev Sound Error: ${e.message}")
+                    log("Dev Sound Error: ${e.message}")
                 }
             }
         } else {
-            viewModel.addDebugLog("Sound file not found: $fileName")
+            log("Sound file not found: $fileName")
         }
     }
 
@@ -150,7 +137,6 @@ class EmuLinkBridge(
         try {
             mediaPlayer.setOnCompletionListener {
                 it.release()
-                // Clean up temp dev mode sound files
                 if (file.name.startsWith("dev_sound_")) {
                     file.delete()
                 }
@@ -166,7 +152,7 @@ class EmuLinkBridge(
             mediaPlayer.prepare()
             mediaPlayer.start()
         } catch (e: Exception) {
-            viewModel.addDebugLog("Sound Error: ${e.message}")
+            log("Sound Error: ${e.message}")
             mediaPlayer.release()
             if (file.name.startsWith("dev_sound_")) {
                 file.delete()
@@ -182,15 +168,9 @@ class EmuLinkBridge(
     }
 
     @JavascriptInterface
-    fun save(key: String, value: String) = viewModel.updateThemeSetting(themeId, key, value)
-
-    @JavascriptInterface
-    fun exit() {
-        viewModel.selectTheme(null)
-    }
-
-    @JavascriptInterface
-    fun openSettings() {
-        viewModel.requestSettings()
+    fun log(message: String) {
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d("OverlayBridge", "JS: $message")
+        }
     }
 }

@@ -1,6 +1,7 @@
 package com.emulnk.ui.screens
 
 import android.os.Environment
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
@@ -40,6 +41,7 @@ fun OnboardingScreen(
     appConfig: AppConfig,
     onGrantPermission: () -> Unit,
     onSelectFolder: () -> Unit,
+    onGrantOverlayPermission: () -> Unit,
     onSetAutoBoot: (Boolean) -> Unit,
     onSetRepoUrl: (String) -> Unit,
     onResetRepoUrl: () -> Unit,
@@ -64,6 +66,7 @@ fun OnboardingScreen(
                     isRootPathSet = isRootPathSet,
                     onGrantPermission = onGrantPermission,
                     onSelectFolder = onSelectFolder,
+                    onGrantOverlayPermission = onGrantOverlayPermission,
                     onNext = { onboardingPage = 1 }
                 )
                 1 -> OnboardingPreferencesPage(
@@ -108,10 +111,15 @@ private fun OnboardingPermissionsPage(
     isRootPathSet: Boolean,
     onGrantPermission: () -> Unit,
     onSelectFolder: () -> Unit,
+    onGrantOverlayPermission: () -> Unit,
     onNext: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     var hasPermission by remember {
         mutableStateOf(Environment.isExternalStorageManager())
+    }
+    var hasOverlayPermission by remember {
+        mutableStateOf(Settings.canDrawOverlays(context))
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -119,6 +127,7 @@ private fun OnboardingPermissionsPage(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 hasPermission = Environment.isExternalStorageManager()
+                hasOverlayPermission = Settings.canDrawOverlays(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -166,6 +175,19 @@ private fun OnboardingPermissionsPage(
         if (isRootPathSet) {
             Text(rootPath, fontSize = 10.sp, color = BrandPurple, modifier = Modifier.padding(top = EmuLnkDimens.spacingXs))
         }
+
+        Spacer(modifier = Modifier.height(EmuLnkDimens.spacingXl))
+
+        // Optional — not required for Next button
+        OnboardingStep(
+            "3",
+            stringResource(R.string.onboarding_overlay_title),
+            stringResource(R.string.onboarding_overlay_desc),
+            hasOverlayPermission,
+            stringResource(R.string.onboarding_overlay_grant),
+            stringResource(R.string.onboarding_overlay_granted),
+            onGrantOverlayPermission
+        )
 
         Spacer(modifier = Modifier.height(48.dp))
 
@@ -296,6 +318,7 @@ fun OnboardingStep(number: String, title: String, description: String, isComplet
     val icon = when(number) {
         "1" -> R.drawable.ic_security
         "2" -> R.drawable.ic_folder_open
+        "3" -> R.drawable.ic_layers
         else -> null
     }
 

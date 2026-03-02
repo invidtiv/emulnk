@@ -22,6 +22,9 @@ import androidx.compose.ui.unit.sp
 import com.emulnk.R
 import com.emulnk.model.AppConfig
 import com.emulnk.model.ThemeConfig
+import com.emulnk.model.ThemeType
+import com.emulnk.model.resolvedType
+import com.emulnk.ui.components.PairingBottomSheet
 import com.emulnk.ui.components.ThemeCard
 import com.emulnk.ui.theme.*
 
@@ -32,12 +35,17 @@ fun LauncherScreen(
     isSyncing: Boolean,
     appConfig: AppConfig,
     rootPath: String,
+    isDualScreen: Boolean,
     onSelectTheme: (ThemeConfig) -> Unit,
+    onSelectPair: (theme: ThemeConfig?, overlay: ThemeConfig?, setDefault: Boolean) -> Unit,
     onSetDefaultTheme: (gameId: String, themeId: String) -> Unit,
     onOpenGallery: () -> Unit,
     onOpenSettings: () -> Unit,
     onSync: () -> Unit
 ) {
+    var showPairingSheet by remember { mutableStateOf(false) }
+    var pendingTheme by remember { mutableStateOf<ThemeConfig?>(null) }
+
     Column(modifier = Modifier.fillMaxSize().padding(EmuLnkDimens.spacingXl).statusBarsPadding()) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(EmuLnkDimens.spacingSm)) {
@@ -110,9 +118,18 @@ fun LauncherScreen(
             ) { page ->
                 ThemeCard(
                     config = themes[page],
-                    isDefault = appConfig.defaultThemes[detectedGameId] == themes[page].id,
+                    isDefault = appConfig.defaultThemes[detectedGameId] == themes[page].id ||
+                        (appConfig.defaultOverlays ?: emptyMap())[detectedGameId] == themes[page].id,
                     rootPath = rootPath,
-                    onClick = { onSelectTheme(themes[page]) },
+                    onClick = {
+                        val theme = themes[page]
+                        if (!isDualScreen || theme.resolvedType == ThemeType.BUNDLE) {
+                            onSelectTheme(theme)
+                        } else {
+                            pendingTheme = theme
+                            showPairingSheet = true
+                        }
+                    },
                     onLongClick = { detectedGameId?.let { gid -> onSetDefaultTheme(gid, themes[page].id) } }
                 )
             }
@@ -147,5 +164,22 @@ fun LauncherScreen(
 
             Spacer(modifier = Modifier.height(EmuLnkDimens.spacingLg))
         }
+    }
+
+    if (showPairingSheet && pendingTheme != null) {
+        val tapped = pendingTheme!!
+        val oppositeType = if (tapped.resolvedType == ThemeType.OVERLAY) ThemeType.THEME else ThemeType.OVERLAY
+        val companions = themes.filter { it.resolvedType == oppositeType }
+
+        PairingBottomSheet(
+            selectedItem = tapped,
+            companions = companions,
+            gameName = detectedGameId ?: "this game",
+            onDismiss = { showPairingSheet = false; pendingTheme = null },
+            onLaunch = { theme, overlay, setDefault ->
+                showPairingSheet = false; pendingTheme = null
+                onSelectPair(theme, overlay, setDefault)
+            }
+        )
     }
 }
