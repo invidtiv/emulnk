@@ -104,9 +104,9 @@ class ConfigManager(private val context: android.content.Context) {
             }
         } else AppConfig()
 
-        // Migrate repo URL from old main branch to feature/overlay branch
-        val oldMainUrl = "https://github.com/EmuLnk/emulnk-repo/archive/refs/heads/main.zip"
-        if (config.repoUrl == oldMainUrl) {
+        // Migrate repo URL from old feature/overlay branch to main
+        val oldOverlayUrl = "https://github.com/EmuLnk/emulnk-repo/archive/refs/heads/feature/overlay.zip"
+        if (config.repoUrl == oldOverlayUrl) {
             val migrated = config.copy(repoUrl = AppConfig().repoUrl)
             saveAppConfig(migrated)
             return migrated
@@ -115,7 +115,7 @@ class ConfigManager(private val context: android.content.Context) {
     }
 
     fun saveAppConfig(config: AppConfig) {
-        if (!rootDir.exists()) return // Don't save to non-existent default root
+        if (!rootDir.exists() && !rootDir.mkdirs()) return
         synchronized(configLock) {
             try {
                 val tmpFile = File(appConfigFile.parent, "app_settings.json.tmp")

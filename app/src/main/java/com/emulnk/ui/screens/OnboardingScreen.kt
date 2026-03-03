@@ -4,6 +4,7 @@ import android.os.Environment
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -33,6 +34,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.emulnk.R
 import com.emulnk.model.AppConfig
 import com.emulnk.ui.theme.*
+import kotlinx.coroutines.delay
 
 @Composable
 fun OnboardingScreen(
@@ -214,6 +216,14 @@ private fun OnboardingPreferencesPage(
     onBack: () -> Unit
 ) {
     var repoUrlText by remember(appConfig.repoUrl) { mutableStateOf(appConfig.repoUrl) }
+    var repoFeedback by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(repoFeedback) {
+        if (repoFeedback != null) {
+            delay(1500)
+            repoFeedback = null
+        }
+    }
 
     BackHandler { onBack() }
 
@@ -277,14 +287,31 @@ private fun OnboardingPreferencesPage(
                         unfocusedBorderColor = TextTertiary
                     )
                 )
-                TextButton(
-                    onClick = {
-                        onResetRepoUrl()
-                        repoUrlText = AppConfig().repoUrl
-                    },
-                    contentPadding = PaddingValues(0.dp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(EmuLnkDimens.spacingSm)
                 ) {
-                    Text(stringResource(R.string.settings_reset_default), color = TextSecondary, fontSize = 10.sp)
+                    TextButton(
+                        onClick = {
+                            onResetRepoUrl()
+                            repoUrlText = AppConfig().repoUrl
+                            repoFeedback = "Reset to default"
+                        },
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Text(stringResource(R.string.settings_reset_default), color = TextSecondary, fontSize = 10.sp)
+                    }
+                    AnimatedVisibility(
+                        visible = repoFeedback != null,
+                        enter = fadeIn(),
+                        exit = fadeOut()
+                    ) {
+                        Text(
+                            repoFeedback ?: "",
+                            fontSize = 10.sp,
+                            color = StatusSuccess
+                        )
+                    }
                 }
             }
         }

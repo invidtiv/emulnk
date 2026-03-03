@@ -11,11 +11,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -228,8 +233,20 @@ fun AppSettingsDialog(
 ) {
     var repoUrlText by remember(appConfig.repoUrl) { mutableStateOf(appConfig.repoUrl) }
     var devUrlText by remember(appConfig.devUrl) { mutableStateOf(appConfig.devUrl) }
+    var repoFeedback by remember { mutableStateOf<String?>(null) }
 
-    Dialog(onDismissRequest = onDismiss) {
+    LaunchedEffect(repoFeedback) {
+        if (repoFeedback != null) {
+            delay(1500)
+            repoFeedback = null
+        }
+    }
+
+    val dismissAndSave = {
+        if (repoUrlText != appConfig.repoUrl) onSetRepoUrl(repoUrlText)
+        onDismiss()
+    }
+    Dialog(onDismissRequest = dismissAndSave) {
         Card(
             modifier = Modifier.fillMaxWidth().padding(EmuLnkDimens.spacingLg),
             shape = RoundedCornerShape(EmuLnkDimens.cornerLg),
@@ -272,16 +289,32 @@ fun AppSettingsDialog(
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(top = EmuLnkDimens.spacingXs),
+                    verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(EmuLnkDimens.spacingSm)
                 ) {
-                    TextButton(onClick = { onSetRepoUrl(repoUrlText) }) {
+                    TextButton(onClick = {
+                        onSetRepoUrl(repoUrlText)
+                        repoFeedback = "Saved!"
+                    }) {
                         Text("Save", color = BrandPurple, fontSize = 12.sp)
                     }
                     TextButton(onClick = {
                         onResetRepoUrl()
                         repoUrlText = AppConfig().repoUrl
+                        repoFeedback = "Reset to default"
                     }) {
                         Text("Reset Default", color = TextSecondary, fontSize = 12.sp)
+                    }
+                    AnimatedVisibility(
+                        visible = repoFeedback != null,
+                        enter = fadeIn(),
+                        exit = fadeOut()
+                    ) {
+                        Text(
+                            repoFeedback ?: "",
+                            fontSize = 11.sp,
+                            color = StatusSuccess
+                        )
                     }
                 }
 
@@ -340,7 +373,7 @@ fun AppSettingsDialog(
 
                 Spacer(modifier = Modifier.height(20.dp))
                 Button(
-                    onClick = onDismiss,
+                    onClick = dismissAndSave,
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(containerColor = BrandPurple)
                 ) {
