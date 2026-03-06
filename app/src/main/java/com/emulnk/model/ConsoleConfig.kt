@@ -11,5 +11,6 @@ data class ConsoleConfig(
     val port: Int,
     val idAddress: String,
     val idSize: Int = 6,
-    val emulatorId: String = "" // EMLK discovery: matches identify() response; empty = legacy (always probe)
+    val emulatorId: String = "", // EMLK discovery: matches identify() response; empty = legacy (always probe)
+    val minPollingInterval: Long? = null // Fastest supported polling rate in ms (null = no limit)
 )

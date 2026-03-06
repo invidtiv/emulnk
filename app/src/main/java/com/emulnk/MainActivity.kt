@@ -109,6 +109,7 @@ class MainActivity : ComponentActivity() {
                 val rootPath by vm.rootPath.collectAsState()
                 val onboardingCompleted by vm.onboardingCompleted.collectAsState()
                 val pairedOverlay by vm.pairedOverlay.collectAsState()
+                val pairedSecondaryOverlay by vm.pairedSecondaryOverlay.collectAsState()
                 val isDualScreen by vm.isDualScreen.collectAsState()
                 val isSyncing by vm.isSyncing.collectAsState()
                 val repoIndex by vm.repoIndex.collectAsState()
@@ -120,11 +121,18 @@ class MainActivity : ComponentActivity() {
                 onOverlayStarted = { currentScreen = Screen.Overlay }
                 var showAppSettings by remember { mutableStateOf(false) }
 
-                LaunchedEffect(onboardingCompleted, selectedTheme, pairedOverlay) {
+                LaunchedEffect(onboardingCompleted, selectedTheme, pairedOverlay, pairedSecondaryOverlay) {
                     when {
                         !onboardingCompleted -> currentScreen = Screen.Onboarding
                         selectedTheme != null -> {
-                            when (selectedTheme!!.resolvedType) {
+                            // Overlay bundle (dual-screen overlay-overlay pairing)
+                            if (pairedSecondaryOverlay != null && selectedTheme!!.resolvedType == ThemeType.OVERLAY) {
+                                if (OverlayService.isRunning()) {
+                                    currentScreen = Screen.Overlay
+                                } else {
+                                    launchOverlayBundle(selectedTheme!!, pairedSecondaryOverlay)
+                                }
+                            } else when (selectedTheme!!.resolvedType) {
                                 ThemeType.BUNDLE -> {
                                     currentScreen = Screen.Dashboard
                                     if (selectedTheme!!.widgets != null && !OverlayService.isRunning()) {
@@ -164,6 +172,7 @@ class MainActivity : ComponentActivity() {
                 val orientation = if (configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) 90 else 0
 
                 LaunchedEffect(topDp, bottomDp, leftDp, rightDp, orientation) {
+                    val secDims = DisplayHelper.getSecondaryDimensions(this@MainActivity)
                     vm.updateSystemInfo(
                         SystemInfo(
                             safeArea = SafeArea(
@@ -176,7 +185,9 @@ class MainActivity : ComponentActivity() {
                                 width = configuration.screenWidthDp,
                                 height = configuration.screenHeightDp,
                                 orientation = orientation,
-                                isDualScreen = DisplayHelper.isDualScreen(this@MainActivity)
+                                isDualScreen = DisplayHelper.isDualScreen(this@MainActivity),
+                                secondaryWidth = secDims?.widthDp ?: 0,
+                                secondaryHeight = secDims?.heightDp ?: 0
                             )
                         )
                     )
@@ -227,6 +238,12 @@ class MainActivity : ComponentActivity() {
                                     vm.selectPair(theme, overlay)
                                     if (setDefault && detectedGameId != null) {
                                         vm.setDefaultPairForGame(detectedGameId!!, theme?.id, overlay?.id)
+                                    }
+                                },
+                                onSelectOverlayBundle = { primary, secondary, setDefault ->
+                                    vm.selectOverlayBundle(primary, secondary)
+                                    if (setDefault && detectedGameId != null) {
+                                        vm.setDefaultBundleForGame(detectedGameId!!, primary?.id, secondary?.id)
                                     }
                                 },
                                 onSetDefaultTheme = { gameId, themeId -> vm.setDefaultThemeForGame(gameId, themeId) },
@@ -363,6 +380,31 @@ class MainActivity : ComponentActivity() {
         }
         startForegroundService(intent)
         // Don't moveTaskToBack — stay on dashboard
+    }
+
+    private fun launchOverlayBundle(primary: ThemeConfig, secondary: ThemeConfig?) {
+        if (!Settings.canDrawOverlays(this)) {
+            pendingOverlayTheme = primary
+            val intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                "package:$packageName".toUri()
+            )
+            overlayPermissionLauncher.launch(intent)
+            return
+        }
+        startOverlayBundleService(primary, secondary)
+    }
+
+    private fun startOverlayBundleService(primary: ThemeConfig, secondary: ThemeConfig?) {
+        val intent = Intent(this, OverlayService::class.java).apply {
+            putExtra(OverlayService.EXTRA_THEME_JSON, gson.toJson(primary))
+            if (secondary != null) {
+                putExtra(OverlayService.EXTRA_SECONDARY_THEME_JSON, gson.toJson(secondary))
+            }
+        }
+        startForegroundService(intent)
+        onOverlayStarted?.invoke()
+        moveTaskToBack(true)
     }
 
     private fun stopOverlayService() {

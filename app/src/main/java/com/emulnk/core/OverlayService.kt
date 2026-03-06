@@ -59,8 +59,10 @@ class OverlayService : Service() {
     companion object {
         private const val TAG = "OverlayService"
         const val EXTRA_THEME_JSON = "theme_json"
+        const val EXTRA_SECONDARY_THEME_JSON = "secondary_theme_json"
         const val ACTION_STOP = "com.emulnk.STOP_OVERLAY"
         const val ACTION_EDIT_MODE = "com.emulnk.EDIT_MODE"
+        const val ACTION_SWAP_SCREENS = "com.emulnk.SWAP_SCREENS"
 
         private var instance: OverlayService? = null
         fun isRunning(): Boolean = instance != null
@@ -76,14 +78,20 @@ class OverlayService : Service() {
     private var dataCollectionJob: Job? = null
 
     private var themeConfig: ThemeConfig? = null
+    private var secondaryThemeConfig: ThemeConfig? = null
     private val widgetViews = mutableMapOf<String, WidgetWindow>()
     private var savedLayout: OverlayLayout? = null
+
+    private var overlayPresentation: OverlayPresentation? = null
+    private var secondaryWidgets: List<WidgetConfig> = emptyList()
+    private var isDualScreenActive = false
 
     private var isEditMode = false
     private var scrimView: View? = null
     private var controlsBar: View? = null
     private var controlsLabel: TextView? = null
     private var selectedWidget: WidgetWindow? = null
+    private var selectedSecondaryWidgetId: String? = null
     private var recoveryPill: View? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -103,6 +111,11 @@ class OverlayService : Service() {
 
         if (intent?.action == ACTION_EDIT_MODE) {
             if (isEditMode) exitEditMode() else enterEditMode()
+            return START_STICKY
+        }
+
+        if (intent?.action == ACTION_SWAP_SCREENS) {
+            swapScreens()
             return START_STICKY
         }
 
@@ -127,17 +140,39 @@ class OverlayService : Service() {
         }
 
         val config = themeConfig ?: run { stopSelf(); return START_NOT_STICKY }
-        val widgets = config.widgets
+        val allWidgets = config.widgets
 
-        if (widgets.isNullOrEmpty()) {
+        if (allWidgets.isNullOrEmpty()) {
             Log.e(TAG, "No widgets defined in overlay theme: ${config.id}")
             stopSelf()
             return START_NOT_STICKY
         }
 
-        savedLayout = configManager.loadOverlayLayout(config.id)
+        // Parse secondary theme if provided (user-paired bundle)
+        val secondaryJson = intent?.getStringExtra(EXTRA_SECONDARY_THEME_JSON)
+        if (secondaryJson != null) {
+            try {
+                secondaryThemeConfig = gson.fromJson(secondaryJson, ThemeConfig::class.java)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to parse secondary theme config", e)
+            }
+        }
 
-        for (widget in widgets) {
+        // Partition widgets: author-defined screenTarget or user-paired bundle
+        val primaryWidgets: List<WidgetConfig>
+        if (secondaryThemeConfig != null) {
+            // Two separate overlays paired by user
+            primaryWidgets = allWidgets
+            secondaryWidgets = secondaryThemeConfig?.widgets ?: emptyList()
+        } else {
+            // Single theme with per-widget screenTarget
+            primaryWidgets = allWidgets.filter { (it.screenTarget ?: OverlayConstants.SCREEN_PRIMARY) == OverlayConstants.SCREEN_PRIMARY }
+            secondaryWidgets = allWidgets.filter { it.screenTarget == OverlayConstants.SCREEN_SECONDARY }
+        }
+
+        savedLayout = configManager.loadOverlayLayout(config.id, OverlayConstants.SCREEN_PRIMARY)
+
+        for (widget in primaryWidgets) {
             val layoutState = savedLayout?.widgets?.get(widget.id)
             createWidgetWindow(config, widget, layoutState)
         }
@@ -145,6 +180,28 @@ class OverlayService : Service() {
         // Show recovery pill if saved layout has all widgets disabled
         if (widgetViews.values.all { !it.enabled }) {
             showRecoveryPill()
+        }
+
+        // Create secondary display presentation if we have secondary widgets
+        val secondaryDisplay = DisplayHelper.getSecondaryDisplay(this)
+        if (secondaryWidgets.isNotEmpty() && secondaryDisplay != null) {
+            val secThemeId = secondaryThemeConfig?.id ?: config.id
+            val presentation = OverlayPresentation(
+                serviceContext = this,
+                display = secondaryDisplay,
+                themeId = secThemeId,
+                themesRootDir = File(configManager.getRootDir(), "themes")
+            )
+            presentation.show()
+
+            val secLayout = configManager.loadOverlayLayout(secThemeId, OverlayConstants.SCREEN_SECONDARY)
+            for (widget in secondaryWidgets) {
+                val layoutState = secLayout?.widgets?.get(widget.id)
+                presentation.addWidget(widget, layoutState)
+            }
+
+            overlayPresentation = presentation
+            isDualScreenActive = true
         }
 
         startDataCollection()
@@ -165,6 +222,13 @@ class OverlayService : Service() {
             for ((_, ww) in widgetViews) {
                 ww.webView.addJavascriptInterface(bridge, "emulink")
             }
+            overlayPresentation?.addBridge(bridge)
+        }
+
+        // Update notification with swap action if dual-screen
+        if (isDualScreenActive) {
+            val nm = getSystemService(NotificationManager::class.java)
+            nm.notify(OverlayConstants.NOTIFICATION_ID, createNotification())
         }
 
         return START_STICKY
@@ -240,7 +304,20 @@ class OverlayService : Service() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
                     // Inject current data immediately so widget doesn't start blank
-                    memoryService?.uiState?.value?.let { pushDataToWidget(view, it) }
+                    memoryService?.uiState?.value?.let { gameData ->
+                        val jsonData = gson.toJson(gameData)
+                        val encodedData = android.util.Base64.encodeToString(
+                            jsonData.toByteArray(), android.util.Base64.NO_WRAP
+                        )
+                        val js = "if(typeof updateData !== 'undefined') updateData('$encodedData', true)"
+                        try {
+                            view?.evaluateJavascript(js, null)
+                        } catch (e: Exception) {
+                            if (BuildConfig.DEBUG) {
+                                Log.w(TAG, "Failed to push initial data to widget: ${e.message}")
+                            }
+                        }
+                    }
                     if (BuildConfig.DEBUG) {
                         Log.d(TAG, "Widget ${widget.id} page finished: $url")
                     }
@@ -332,29 +409,25 @@ class OverlayService : Service() {
         }
     }
 
-    private fun pushDataToWidget(view: WebView?, gameData: GameData) {
-        view ?: return
+    private fun pushDataToWidgets(gameData: GameData) {
         val jsonData = gson.toJson(gameData)
         val encodedData = android.util.Base64.encodeToString(
             jsonData.toByteArray(),
             android.util.Base64.NO_WRAP
         )
         val js = "if(typeof updateData !== 'undefined') updateData('$encodedData', true)"
-        try {
-            view.evaluateJavascript(js, null)
-        } catch (e: Exception) {
-            if (BuildConfig.DEBUG) {
-                Log.w(TAG, "Failed to push data to widget: ${e.message}")
-            }
-        }
-    }
-
-    private fun pushDataToWidgets(gameData: GameData) {
         for ((_, ww) in widgetViews) {
             if (ww.enabled) {
-                pushDataToWidget(ww.webView, gameData)
+                try {
+                    ww.webView.evaluateJavascript(js, null)
+                } catch (e: Exception) {
+                    if (BuildConfig.DEBUG) {
+                        Log.w(TAG, "Failed to push data to widget: ${e.message}")
+                    }
+                }
             }
         }
+        overlayPresentation?.pushDataToWidgets(gameData)
     }
 
     /**
@@ -456,6 +529,16 @@ class OverlayService : Service() {
             setupDragHandling(ww)
         }
 
+        // Activate edit mode on secondary display
+        overlayPresentation?.enterEditMode { widgetId ->
+            // Secondary widget selected — deselect primary
+            selectedWidget?.let { updateWidgetEditVisual(it, false) }
+            selectedWidget = null
+            selectedSecondaryWidgetId = widgetId
+            overlayPresentation?.selectWidget(widgetId)
+            updateControlsLabel()
+        }
+
         showEditModeControls()
     }
 
@@ -463,6 +546,10 @@ class OverlayService : Service() {
         if (!isEditMode) return
         isEditMode = false
         selectedWidget = null
+        selectedSecondaryWidgetId = null
+
+        // Exit edit mode on secondary display
+        overlayPresentation?.exitEditMode()
 
         // Remove controls bar
         controlsBar?.let {
@@ -535,7 +622,11 @@ class OverlayService : Service() {
     }
 
     private fun updateControlsLabel() {
-        controlsLabel?.text = selectedWidget?.widget?.label ?: ""
+        val label = selectedWidget?.widget?.label
+            ?: selectedSecondaryWidgetId?.let { id ->
+                secondaryWidgets.find { it.id == id }?.label
+            } ?: ""
+        controlsLabel?.text = label
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -599,6 +690,12 @@ class OverlayService : Service() {
                 }
                 MotionEvent.ACTION_UP -> {
                     val wasAlreadySelected = (selectedWidget == ww)
+
+                    // Deselect secondary widget if one was selected
+                    selectedSecondaryWidgetId?.let {
+                        overlayPresentation?.selectWidget("")
+                        selectedSecondaryWidgetId = null
+                    }
 
                     // Update selection
                     val prevSelected = selectedWidget
@@ -759,6 +856,21 @@ class OverlayService : Service() {
         }
 
         controlsLayout.addView(label)
+        if (isDualScreenActive) {
+            val swapIcon = androidx.core.content.ContextCompat.getDrawable(this@OverlayService, R.drawable.ic_swap_vert)?.mutate()?.apply {
+                setBounds(0, 0, (20 * density).toInt(), (20 * density).toInt())
+                setTint(0xFF9E96B8.toInt()) // TextSecondary
+            }
+            val swapButton = TextView(this).apply {
+                setCompoundDrawables(swapIcon, null, null, null)
+                setPadding((8 * density).toInt(), (6 * density).toInt(), (8 * density).toInt(), (6 * density).toInt())
+                setOnClickListener {
+                    exitEditMode()
+                    swapScreens()
+                }
+            }
+            controlsLayout.addView(swapButton)
+        }
         controlsLayout.addView(resetButton)
         controlsLayout.addView(doneButton)
 
@@ -801,7 +913,15 @@ class OverlayService : Service() {
 
         configManager.saveOverlayLayout(config.id, OverlayLayout())
 
+        // Reset secondary widgets too
+        overlayPresentation?.resetWidgets()
+        if (isDualScreenActive) {
+            val secConfig = secondaryThemeConfig ?: config
+            configManager.saveOverlayLayout(secConfig.id, OverlayLayout(), OverlayConstants.SCREEN_SECONDARY)
+        }
+
         selectedWidget = widgetViews.values.firstOrNull()
+        selectedSecondaryWidgetId = null
         updateControlsLabel()
         for ((_, ww) in widgetViews) {
             updateWidgetEditVisual(ww, ww == selectedWidget)
@@ -825,7 +945,25 @@ class OverlayService : Service() {
             )
         }
 
-        configManager.saveOverlayLayout(config.id, OverlayLayout(widgets = states))
+        val screenId = if (isDualScreenActive) OverlayConstants.SCREEN_PRIMARY else null
+        configManager.saveOverlayLayout(config.id, OverlayLayout(widgets = states), screenId)
+
+        // Save secondary layout
+        if (isDualScreenActive) {
+            val secConfig = secondaryThemeConfig ?: config
+            val secDisplay = DisplayHelper.getSecondaryDisplay(this)
+            if (secDisplay != null) {
+                val secDensity = DisplayHelper.getDisplayDensity(this, secDisplay)
+                val secStates = overlayPresentation?.getWidgetStates(secDensity)
+                if (secStates != null) {
+                    configManager.saveOverlayLayout(
+                        secConfig.id,
+                        OverlayLayout(widgets = secStates),
+                        OverlayConstants.SCREEN_SECONDARY
+                    )
+                }
+            }
+        }
     }
 
     private fun createNotification(): Notification {
@@ -851,10 +989,13 @@ class OverlayService : Service() {
             PendingIntent.FLAG_IMMUTABLE
         )
 
-        return Notification.Builder(this, OverlayConstants.NOTIFICATION_CHANNEL_ID)
+        val builder = Notification.Builder(this, OverlayConstants.NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(getString(R.string.overlay_notification_title))
-            .setContentText(getString(R.string.overlay_notification_text))
+            .setContentText(
+                if (isDualScreenActive) getString(R.string.overlay_bundle_active)
+                else getString(R.string.overlay_notification_text)
+            )
             .setContentIntent(openIntent)
             .addAction(Notification.Action.Builder(
                 null, getString(R.string.overlay_edit_layout),
@@ -864,12 +1005,25 @@ class OverlayService : Service() {
                     PendingIntent.FLAG_IMMUTABLE
                 )
             ).build())
-            .addAction(Notification.Action.Builder(
-                null, getString(R.string.exit),
-                stopIntent
+
+        if (isDualScreenActive) {
+            builder.addAction(Notification.Action.Builder(
+                null, getString(R.string.swap_screens),
+                PendingIntent.getService(
+                    this, 2,
+                    Intent(this, OverlayService::class.java).apply { action = ACTION_SWAP_SCREENS },
+                    PendingIntent.FLAG_IMMUTABLE
+                )
             ).build())
+        }
+
+        builder.addAction(Notification.Action.Builder(
+            null, getString(R.string.exit),
+            stopIntent
+        ).build())
             .setOngoing(true)
-            .build()
+
+        return builder.build()
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -924,6 +1078,129 @@ class OverlayService : Service() {
         }
     }
 
+    private fun swapScreens() {
+        if (!isDualScreenActive) return
+        val config = themeConfig ?: return
+        val secConfig = secondaryThemeConfig ?: config
+
+        // Save current layouts before swap
+        saveCurrentLayout()
+
+        val secondaryDisplay = DisplayHelper.getSecondaryDisplay(this) ?: return
+        val primaryDensity = resources.displayMetrics.density
+        val primaryWidthDp = (resources.displayMetrics.widthPixels / primaryDensity).toInt()
+        val primaryHeightDp = (getRealScreenHeight() / primaryDensity).toInt()
+        val secDims = DisplayHelper.getSecondaryDimensions(this) ?: return
+
+        // Capture current primary widget configs
+        val currentPrimaryWidgets = widgetViews.values.map { it.widget }.toList()
+        val currentSecondaryWidgets = secondaryWidgets.toList()
+
+        // Destroy all — dismiss first so window detaches before WebViews are destroyed
+        overlayPresentation?.let {
+            it.dismiss()
+            it.destroyAll()
+            overlayPresentation = null
+        }
+        for ((_, ww) in widgetViews) {
+            try {
+                ww.webView.stopLoading()
+                windowManager.removeView(ww.container)
+                ww.webView.destroy()
+            } catch (_: Exception) {}
+        }
+        widgetViews.clear()
+        removeRecoveryPill()
+
+        // Swap: old secondary -> new primary, old primary -> new secondary
+        secondaryWidgets = currentPrimaryWidgets
+
+        // Re-create primary widgets (from old secondary) with scaling
+        val primaryLayoutForSec = configManager.loadOverlayLayout(secConfig.id, OverlayConstants.SCREEN_PRIMARY)
+        val secLayoutForSec = configManager.loadOverlayLayout(secConfig.id, OverlayConstants.SCREEN_SECONDARY)
+        for (widget in currentSecondaryWidgets) {
+            val sourceState = primaryLayoutForSec?.widgets?.get(widget.id)
+                ?: secLayoutForSec?.widgets?.get(widget.id)
+            val scaledState = sourceState?.let {
+                scaleLayoutState(it, secDims.widthDp, secDims.heightDp, primaryWidthDp, primaryHeightDp, widget)
+            }
+            createWidgetWindow(secConfig, widget, scaledState)
+        }
+
+        // Re-create secondary presentation (from old primary) with scaling
+        val presentation = OverlayPresentation(
+            serviceContext = this,
+            display = secondaryDisplay,
+            themeId = config.id,
+            themesRootDir = File(configManager.getRootDir(), "themes")
+        )
+        presentation.show()
+
+        val secSavedLayout = configManager.loadOverlayLayout(config.id, OverlayConstants.SCREEN_SECONDARY)
+        val priLayoutForPri = configManager.loadOverlayLayout(config.id, OverlayConstants.SCREEN_PRIMARY)
+        for (widget in currentPrimaryWidgets) {
+            val sourceState = secSavedLayout?.widgets?.get(widget.id)
+                ?: priLayoutForPri?.widgets?.get(widget.id)
+            val scaledState = sourceState?.let {
+                scaleLayoutState(it, primaryWidthDp, primaryHeightDp, secDims.widthDp, secDims.heightDp, widget)
+            }
+            presentation.addWidget(widget, scaledState)
+        }
+        overlayPresentation = presentation
+
+        // Swap theme configs if user-paired bundle
+        if (secondaryThemeConfig != null) {
+            val tmp = themeConfig
+            themeConfig = secondaryThemeConfig
+            secondaryThemeConfig = tmp
+        }
+
+        // Recreate bridge with correct post-swap themeIds
+        memoryService?.let { ms ->
+            val appConfig = configManager.getAppConfig()
+            val newBridge = OverlayBridge(
+                context = this,
+                memoryService = ms,
+                scope = serviceScope,
+                themeId = themeConfig!!.id,
+                themesRootDir = File(configManager.getRootDir(), "themes"),
+                devMode = appConfig.devMode,
+                devUrl = appConfig.devUrl
+            )
+            overlayBridge = newBridge
+            for ((_, ww) in widgetViews) {
+                ww.webView.addJavascriptInterface(newBridge, "emulink")
+            }
+            val secBridge = OverlayBridge(
+                context = this,
+                memoryService = ms,
+                scope = serviceScope,
+                themeId = (secondaryThemeConfig ?: themeConfig)!!.id,
+                themesRootDir = File(configManager.getRootDir(), "themes"),
+                devMode = appConfig.devMode,
+                devUrl = appConfig.devUrl
+            )
+            presentation.addBridge(secBridge)
+        }
+
+        // Push current data
+        memoryService?.uiState?.value?.let { pushDataToWidgets(it) }
+    }
+
+    private fun scaleLayoutState(
+        source: WidgetLayoutState,
+        srcWidth: Int, srcHeight: Int,
+        tgtWidth: Int, tgtHeight: Int,
+        widget: WidgetConfig
+    ): WidgetLayoutState {
+        if (srcWidth <= 0 || srcHeight <= 0) return source
+        val newX = (source.x.toFloat() / srcWidth * tgtWidth).toInt()
+        val newY = (source.y.toFloat() / srcHeight * tgtHeight).toInt()
+        val newW = (source.width.toFloat() / srcWidth * tgtWidth).toInt().coerceAtLeast(widget.minWidth)
+        val newH = (source.height.toFloat() / srcHeight * tgtHeight).toInt().coerceAtLeast(widget.minHeight)
+        return source.copy(x = newX, y = newY, width = newW, height = newH)
+    }
+
     private fun removeAllWidgets() {
         removeRecoveryPill()
 
@@ -937,6 +1214,15 @@ class OverlayService : Service() {
             try { windowManager.removeView(it) } catch (_: Exception) {}
             scrimView = null
         }
+
+        // Dismiss secondary display presentation — dismiss first, then destroy
+        overlayPresentation?.let {
+            it.dismiss()
+            it.destroyAll()
+            overlayPresentation = null
+        }
+        secondaryWidgets = emptyList()
+        isDualScreenActive = false
 
         for ((_, ww) in widgetViews) {
             try {
@@ -959,6 +1245,7 @@ class OverlayService : Service() {
 
         dataCollectionJob?.cancel()
         memoryService = null
+        secondaryThemeConfig = null
 
         serviceScope.cancel()
         super.onDestroy()

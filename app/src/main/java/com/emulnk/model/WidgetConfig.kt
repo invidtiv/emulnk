@@ -15,5 +15,6 @@ data class WidgetConfig(
     val resizable: Boolean = true,
     val transparent: Boolean = true,
     val minWidth: Int = 60,
-    val minHeight: Int = 60
+    val minHeight: Int = 60,
+    val screenTarget: String = "primary" // "primary" or "secondary" — for dual-screen widget targeting
 )

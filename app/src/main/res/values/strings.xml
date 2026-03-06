@@ -78,4 +78,11 @@
     <string name="overlay_done">Done</string>
     <string name="overlay_reset">Reset</string>
     <string name="overlay_all_hidden">All widgets hidden. Tap indicator to edit.</string>
+
+    <!-- Dual-Screen / Overlay Bundles -->
+    <string name="pair_overlay_bundle">Pair overlays for dual screens</string>
+    <string name="screen_primary">Primary Screen</string>
+    <string name="screen_secondary">Secondary Screen</string>
+    <string name="swap_screens">Swap Screens</string>
+    <string name="overlay_bundle_active">Dual-screen overlay active</string>
 </resources>

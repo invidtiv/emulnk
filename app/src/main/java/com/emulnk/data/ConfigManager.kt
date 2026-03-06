@@ -303,24 +303,38 @@ class ConfigManager(private val context: android.content.Context) {
         return null
     }
 
-    fun saveOverlayLayout(overlayId: String, layout: OverlayLayout) {
+    fun saveOverlayLayout(overlayId: String, layout: OverlayLayout, screenId: String? = null) {
         synchronized(configLock) {
             try {
                 savesDir.mkdirs()
-                val file = File(savesDir, "${overlayId}_layout.json")
-                val tmpFile = File(savesDir, "${overlayId}_layout.json.tmp")
+                val fileName = if (screenId != null) "${overlayId}_layout_${screenId}.json" else "${overlayId}_layout.json"
+                val file = File(savesDir, fileName)
+                val tmpFile = File(savesDir, "$fileName.tmp")
                 tmpFile.writeText(gson.toJson(layout))
                 if (!tmpFile.renameTo(file)) {
                     tmpFile.copyTo(file, overwrite = true)
                     tmpFile.delete()
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Failed to save overlay layout for $overlayId: ${e.message}")
+                Log.w(TAG, "Failed to save overlay layout for $overlayId (screen=$screenId): ${e.message}")
             }
         }
     }
 
-    fun loadOverlayLayout(overlayId: String): OverlayLayout? {
+    fun loadOverlayLayout(overlayId: String, screenId: String? = null): OverlayLayout? {
+        // Try screen-specific file first
+        if (screenId != null) {
+            val screenFile = File(savesDir, "${overlayId}_layout_${screenId}.json")
+            if (screenFile.exists()) {
+                return try {
+                    gson.fromJson(screenFile.readText(), OverlayLayout::class.java)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to load screen-specific layout for $overlayId/$screenId: ${e.message}")
+                    null
+                }
+            }
+        }
+        // Fallback to legacy file
         val file = File(savesDir, "${overlayId}_layout.json")
         if (!file.exists()) return null
         return try {

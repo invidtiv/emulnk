@@ -1,18 +1,21 @@
 package com.emulnk.ui.viewmodel
 
 import android.app.Application
+import android.util.Log
 import com.emulnk.BuildConfig
 import com.emulnk.EmuLnkApplication
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.emulnk.core.DisplayHelper
 import com.emulnk.core.SyncService
+import com.emulnk.core.MemoryConstants
 import com.emulnk.core.TelemetryConstants
 import com.emulnk.core.TelemetryService
 import com.emulnk.data.ConfigManager
 import com.emulnk.model.AppConfig
 import com.emulnk.model.BatteryInfo
 import com.emulnk.model.GameData
+import com.emulnk.model.OverlayBundle
 import com.emulnk.model.RepoIndex
 import com.emulnk.model.RepoTheme
 import com.emulnk.model.SystemInfo
@@ -108,6 +111,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _pairedOverlay = MutableStateFlow<ThemeConfig?>(null)
     val pairedOverlay: StateFlow<ThemeConfig?> = _pairedOverlay
+
+    private val _pairedSecondaryOverlay = MutableStateFlow<ThemeConfig?>(null)
+    val pairedSecondaryOverlay: StateFlow<ThemeConfig?> = _pairedSecondaryOverlay
 
     private val _showSettingsEvent = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val showSettingsEvent: SharedFlow<Unit> = _showSettingsEvent
@@ -260,6 +266,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val themes = _availableThemes.value
             if (themes.isEmpty()) return
 
+            // Check for saved overlay bundle first (dual-screen overlay-overlay pairing)
+            val defaultBundle = _appConfig.value.defaultBundles[gameId]
+            if (defaultBundle != null && _isDualScreen.value) {
+                val primary = defaultBundle.primaryOverlayId?.let { id -> themes.find { it.id == id } }
+                val secondary = defaultBundle.secondaryOverlayId?.let { id -> themes.find { it.id == id } }
+                if (primary != null) {
+                    selectOverlayBundle(primary, secondary)
+                    return
+                }
+            }
+
             val defaultThemeId = _appConfig.value.defaultThemes[gameId]
             val defaultOverlayId = (_appConfig.value.defaultOverlays ?: emptyMap())[gameId]
             val themeToSelect = themes.find { it.id == defaultThemeId } ?: themes.first()
@@ -369,6 +386,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         configManager.saveAppConfig(newConfig)
     }
 
+    fun setDefaultBundleForGame(gameId: String, primaryId: String?, secondaryId: String?) {
+        val newBundles = (_appConfig.value.defaultBundles).toMutableMap()
+        if (primaryId != null || secondaryId != null) {
+            newBundles[gameId] = OverlayBundle(
+                primaryOverlayId = primaryId,
+                secondaryOverlayId = secondaryId
+            )
+        } else {
+            newBundles.remove(gameId)
+        }
+        val newConfig = _appConfig.value.copy(defaultBundles = newBundles)
+        _appConfig.value = newConfig
+        configManager.saveAppConfig(newConfig)
+    }
+
     fun selectTheme(theme: ThemeConfig?) {
         _selectedTheme.value = theme
         _pairedOverlay.value = null
@@ -385,8 +417,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _selectedTheme.value = theme
             _pairedOverlay.value = overlay
         }
+        _pairedSecondaryOverlay.value = null
         if (theme == null && overlay == null) { memoryService.stopPolling(); return }
         (theme ?: overlay)?.let { loadAndApplyThemeSettings(it) }
+    }
+
+    fun selectOverlayBundle(primary: ThemeConfig?, secondary: ThemeConfig?) {
+        _selectedTheme.value = primary
+        _pairedOverlay.value = null
+        _pairedSecondaryOverlay.value = secondary
+        if (primary == null && secondary == null) { memoryService.stopPolling(); return }
+        primary?.let { loadAndApplyThemeSettings(it) }
     }
 
     private fun loadAndApplyThemeSettings(theme: ThemeConfig) {
@@ -411,8 +452,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             memoryService.updateState { generateMockGameData(currentSettings) }
         } else {
-            configManager.loadProfile(theme.targetProfileId)?.let {
-                memoryService.setProfile(it)
+            configManager.loadProfile(theme.targetProfileId)?.let { profile ->
+                val consoleInterval = configManager.getConsoleConfigs()
+                    .firstOrNull { it.console == detectedConsole.value }
+                    ?.minPollingInterval
+                val effectiveInterval = maxOf(
+                    consoleInterval ?: MemoryConstants.MIN_POLLING_INTERVAL_MS,
+                    theme.pollingInterval ?: MemoryConstants.POLLING_INTERVAL_MS
+                ).coerceIn(MemoryConstants.MIN_POLLING_INTERVAL_MS, MemoryConstants.MAX_POLLING_INTERVAL_MS)
+                memoryService.setProfile(profile, effectiveInterval)
             }
         }
     }
@@ -439,9 +487,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         memoryService.updateState { it.copy(settings = newSettings) }
 
         viewModelScope.launch(Dispatchers.IO) {
-            val saveFile = File(configManager.getSavesDir(), "${themeId}.json")
-            saveFile.parentFile?.mkdirs()
-            saveFile.writeText(gson.toJson(newSettings))
+            try {
+                val saveFile = File(configManager.getSavesDir(), "${themeId}.json")
+                saveFile.parentFile?.mkdirs()
+                saveFile.writeText(gson.toJson(newSettings))
+            } catch (e: Exception) {
+                if (BuildConfig.DEBUG) {
+                    Log.w(TAG, "Failed to save theme settings: ${e.message}")
+                }
+            }
         }
     }
 

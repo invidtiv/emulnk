@@ -1,10 +1,16 @@
 package com.emulnk.model
 
 /**
+ * Screen dimensions in dp, used for proportional layout scaling across displays.
+ */
+data class ScreenDimensions(val widthDp: Int, val heightDp: Int)
+
+/**
  * Persisted layout state for an overlay's widgets.
  */
 data class OverlayLayout(
-    val widgets: Map<String, WidgetLayoutState> = emptyMap()
+    val widgets: Map<String, WidgetLayoutState> = emptyMap(),
+    val screenDimensions: ScreenDimensions? = null
 )
 
 /**

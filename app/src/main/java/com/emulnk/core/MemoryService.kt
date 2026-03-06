@@ -188,12 +188,12 @@ class MemoryService(private val repository: MemoryRepository) {
         }
     }
 
-    fun setProfile(profile: ProfileConfig) {
+    fun setProfile(profile: ProfileConfig, pollingIntervalMs: Long = MemoryConstants.POLLING_INTERVAL_MS) {
         currentProfile = profile
-        startPolling(profile)
+        startPolling(profile, pollingIntervalMs)
     }
 
-    private fun startPolling(profile: ProfileConfig) {
+    private fun startPolling(profile: ProfileConfig, pollingIntervalMs: Long) {
         pollingJob?.cancel()
         pollingJob = serviceScope.launch {
             while (isActive) {
@@ -226,7 +226,7 @@ class MemoryService(private val repository: MemoryRepository) {
                     raw = rawValues
                 )
 
-                delay(MemoryConstants.POLLING_INTERVAL_MS)
+                delay(pollingIntervalMs)
             }
         }
     }

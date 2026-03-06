@@ -12,6 +12,12 @@ object MemoryConstants {
     /** Memory polling interval in milliseconds */
     const val POLLING_INTERVAL_MS = 200L
 
+    /** Minimum allowed polling interval in milliseconds */
+    const val MIN_POLLING_INTERVAL_MS = 50L
+
+    /** Maximum allowed polling interval in milliseconds */
+    const val MAX_POLLING_INTERVAL_MS = 5000L
+
     /** Delay between detection retry attempts in milliseconds */
     const val DETECTION_RETRY_DELAY_MS = 1000L
 
@@ -138,6 +144,10 @@ object OverlayConstants {
 
     /** Unselected widget border width in dp */
     const val EDIT_BORDER_NORMAL_WIDTH_DP = 1
+
+    /** Screen target identifiers for dual-screen overlays */
+    const val SCREEN_PRIMARY = "primary"
+    const val SCREEN_SECONDARY = "secondary"
 }
 
 object MathConstants {

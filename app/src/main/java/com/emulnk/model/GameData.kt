@@ -36,5 +36,7 @@ data class DisplayInfo(
     val width: Int = 0,
     val height: Int = 0,
     val orientation: Int = 0, // 0, 90, 180, 270
-    val isDualScreen: Boolean = false
+    val isDualScreen: Boolean = false,
+    val secondaryWidth: Int = 0,
+    val secondaryHeight: Int = 0
 )

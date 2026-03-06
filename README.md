@@ -10,7 +10,7 @@
 <p align="center">
   <a href="https://github.com/EmuLnk/emulnk/releases"><img src="https://img.shields.io/github/v/release/EmuLnk/emulnk?include_prereleases&style=for-the-badge&color=B47CFF&label=Release&logoColor=white&logo=github" alt="Release"/></a>
   &nbsp;
-  <img src="https://img.shields.io/badge/Android-8.0%2B-00E5FF?style=for-the-badge&logo=android&logoColor=white" alt="Android 8.0+"/>
+  <img src="https://img.shields.io/badge/Android-13%2B-00E5FF?style=for-the-badge&logo=android&logoColor=white" alt="Android 13+"/>
   &nbsp;
   <img src="https://img.shields.io/badge/Kotlin-2.0-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white" alt="Kotlin"/>
   &nbsp;

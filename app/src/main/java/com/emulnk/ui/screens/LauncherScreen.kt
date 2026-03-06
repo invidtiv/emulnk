@@ -38,12 +38,14 @@ fun LauncherScreen(
     isDualScreen: Boolean,
     onSelectTheme: (ThemeConfig) -> Unit,
     onSelectPair: (theme: ThemeConfig?, overlay: ThemeConfig?, setDefault: Boolean) -> Unit,
+    onSelectOverlayBundle: (primary: ThemeConfig?, secondary: ThemeConfig?, setDefault: Boolean) -> Unit,
     onSetDefaultTheme: (gameId: String, themeId: String) -> Unit,
     onOpenGallery: () -> Unit,
     onOpenSettings: () -> Unit,
     onSync: () -> Unit
 ) {
     var showPairingSheet by remember { mutableStateOf(false) }
+    var showBundleSheet by remember { mutableStateOf(false) }
     var pendingTheme by remember { mutableStateOf<ThemeConfig?>(null) }
 
     Column(modifier = Modifier.fillMaxSize().padding(EmuLnkDimens.spacingXl).statusBarsPadding()) {
@@ -125,6 +127,9 @@ fun LauncherScreen(
                         val theme = themes[page]
                         if (!isDualScreen || theme.resolvedType == ThemeType.BUNDLE) {
                             onSelectTheme(theme)
+                        } else if (isDualScreen && theme.resolvedType == ThemeType.OVERLAY) {
+                            pendingTheme = theme
+                            showBundleSheet = true
                         } else {
                             pendingTheme = theme
                             showPairingSheet = true
@@ -179,6 +184,24 @@ fun LauncherScreen(
             onLaunch = { theme, overlay, setDefault ->
                 showPairingSheet = false; pendingTheme = null
                 onSelectPair(theme, overlay, setDefault)
+            }
+        )
+    }
+
+    if (showBundleSheet && pendingTheme != null) {
+        val tapped = pendingTheme!!
+        val otherOverlays = themes.filter { it.resolvedType == ThemeType.OVERLAY && it.id != tapped.id }
+
+        PairingBottomSheet(
+            selectedItem = tapped,
+            companions = otherOverlays,
+            gameName = detectedGameId ?: "this game",
+            isDualScreenBundle = true,
+            onDismiss = { showBundleSheet = false; pendingTheme = null },
+            onLaunch = { _, _, _ -> /* unused for bundle mode */ },
+            onLaunchBundle = { primary, secondary, setDefault ->
+                showBundleSheet = false; pendingTheme = null
+                onSelectOverlayBundle(primary, secondary, setDefault)
             }
         )
     }

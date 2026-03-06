@@ -25,15 +25,21 @@ fun PairingBottomSheet(
     selectedItem: ThemeConfig,
     companions: List<ThemeConfig>,
     gameName: String,
+    isDualScreenBundle: Boolean = false,
     onDismiss: () -> Unit,
-    onLaunch: (theme: ThemeConfig?, overlay: ThemeConfig?, setDefault: Boolean) -> Unit
+    onLaunch: (theme: ThemeConfig?, overlay: ThemeConfig?, setDefault: Boolean) -> Unit,
+    onLaunchBundle: (primary: ThemeConfig?, secondary: ThemeConfig?, setDefault: Boolean) -> Unit = { _, _, _ -> }
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var selectedCompanionIndex by remember { mutableIntStateOf(-1) } // -1 = None
     var setDefault by remember { mutableStateOf(false) }
 
     val isTheme = selectedItem.resolvedType == ThemeType.THEME
-    val title = if (isTheme) stringResource(R.string.pair_with_overlay) else stringResource(R.string.pair_with_theme)
+    val title = when {
+        isDualScreenBundle -> stringResource(R.string.pair_overlay_bundle)
+        isTheme -> stringResource(R.string.pair_with_overlay)
+        else -> stringResource(R.string.pair_with_theme)
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -53,6 +59,34 @@ fun PairingBottomSheet(
                 fontWeight = FontWeight.Bold,
                 color = TextPrimary
             )
+
+            if (isDualScreenBundle) {
+                Spacer(modifier = Modifier.height(EmuLnkDimens.spacingMd))
+
+                // Primary Screen section
+                Text(
+                    text = stringResource(R.string.screen_primary),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextSecondary
+                )
+                Text(
+                    text = selectedItem.meta.name,
+                    fontSize = 14.sp,
+                    color = TextPrimary,
+                    modifier = Modifier.padding(vertical = EmuLnkDimens.spacingXs)
+                )
+
+                Spacer(modifier = Modifier.height(EmuLnkDimens.spacingMd))
+
+                // Secondary Screen section
+                Text(
+                    text = stringResource(R.string.screen_secondary),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextSecondary
+                )
+            }
 
             Spacer(modifier = Modifier.height(EmuLnkDimens.spacingLg))
 
@@ -132,7 +166,9 @@ fun PairingBottomSheet(
             Button(
                 onClick = {
                     val selectedCompanion = if (selectedCompanionIndex >= 0) companions[selectedCompanionIndex] else null
-                    if (isTheme) {
+                    if (isDualScreenBundle) {
+                        onLaunchBundle(selectedItem, selectedCompanion, setDefault)
+                    } else if (isTheme) {
                         onLaunch(selectedItem, selectedCompanion, setDefault)
                     } else {
                         onLaunch(selectedCompanion, selectedItem, setDefault)

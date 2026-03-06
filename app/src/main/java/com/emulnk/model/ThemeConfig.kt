@@ -21,7 +21,8 @@ data class ThemeConfig(
     val assetsPath: String? = null,
     val settings: List<ThemeSettingSchema>? = emptyList(),
     val type: String? = null,    // "theme", "overlay", or "bundle" — null defaults to "theme" (Gson bypasses Kotlin defaults)
-    val widgets: List<WidgetConfig>? = null // Widget definitions for overlay-type themes
+    val widgets: List<WidgetConfig>? = null, // Widget definitions for overlay-type themes
+    val pollingInterval: Long? = null // Preferred polling rate in ms (null = default 200ms)
 )
 
 /** Resolves the effective type, defaulting null to "theme". */
