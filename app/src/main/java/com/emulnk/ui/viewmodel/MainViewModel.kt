@@ -447,7 +447,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun resetRepoUrl() {
-        val defaultUrl = AppConfig().repoUrl
+        val defaultUrl = AppConfig().repoUrlShim
         setRepoUrl(defaultUrl)
     }
 
@@ -684,7 +684,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun fetchGallery() {
         viewModelScope.launch(Dispatchers.IO) {
-            val repoUrl = _appConfig.value.repoUrl
+            val repoUrl = _appConfig.value.repoUrlShim
             _rawBaseUrl.value = syncService.deriveRawBaseUrl(repoUrl)
             val index = syncService.fetchRepoIndex(repoUrl)
             _repoIndex.value = index
@@ -702,7 +702,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val localPrefix = "themes/${theme.id}/"
         viewModelScope.launch(Dispatchers.IO) {
             val success = syncService.downloadAndExtract(
-                url = _appConfig.value.repoUrl,
+                url = _appConfig.value.repoUrlShim,
                 stripRoot = true,
                 pathFilter = { path -> path.startsWith(themePrefix) },
                 pathRewriter = { path -> localPrefix + path.removePrefix(themePrefix) }
@@ -812,7 +812,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val localPrefix = "widgets/$profileId/"
         viewModelScope.launch(Dispatchers.IO) {
             val success = syncService.downloadAndExtract(
-                url = _appConfig.value.repoUrl,
+                url = _appConfig.value.repoUrlShim,
                 stripRoot = true,
                 pathFilter = { path -> path.startsWith(widgetPrefix) },
                 pathRewriter = { path -> localPrefix + path.removePrefix(widgetPrefix) }
@@ -1084,7 +1084,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch(Dispatchers.IO) {
             val success = syncService.downloadAndExtract(
-                url = _appConfig.value.repoUrl,
+                url = _appConfig.value.repoUrlShim,
                 stripRoot = true,
                 pathFilter = { path ->
                     path == "index.json" ||
@@ -1107,7 +1107,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 refreshAllInstalledThemes()
 
                 try {
-                    val repoUrl = _appConfig.value.repoUrl
+                    val repoUrl = _appConfig.value.repoUrlShim
                     _rawBaseUrl.value = syncService.deriveRawBaseUrl(repoUrl)
                     _repoIndex.value = syncService.fetchRepoIndex(repoUrl)
                 } catch (_: Exception) { /* index fetch failure shouldn't break sync */ }

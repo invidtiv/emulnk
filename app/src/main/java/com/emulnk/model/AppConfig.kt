@@ -20,4 +20,6 @@ data class AppConfig(
     val defaultBundles: Map<String, OverlayBundle> = emptyMap(), // GameID -> OverlayBundle
     val devMode: Boolean = false,
     val devUrl: String = ""
-)
+) {
+    val repoUrlShim get() = if (devMode) devUrl else repoUrl
+}
