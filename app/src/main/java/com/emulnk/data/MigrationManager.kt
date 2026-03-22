@@ -14,7 +14,7 @@ class MigrationManager(
 ) {
     companion object {
         private const val TAG = "MigrationManager"
-        private const val CURRENT_MIGRATION_VERSION = 1
+        private const val CURRENT_MIGRATION_VERSION = 2
 
         val RENAME_MAP = mapOf(
             "WindWakerMinimap" to "GZLNavigator",
@@ -29,6 +29,25 @@ class MigrationManager(
             "HeartGoldWidgets" to "IPKETypeBadges",
             "HeartGoldMoveEff" to "IPKEMoveEff"
         )
+
+        // V2→V3: composite theme folder naming (profileId_themeId)
+        val COMPOSITE_RENAME_MAP = mapOf(
+            "GZLNavigator" to "GZL_GZLNavigator",
+            "GZLSeaOverlay" to "GZL_GZLSeaOverlay",
+            "PMCCompanion" to "PMC_PMCCompanion",
+            "PMCBattleOverlay" to "PMC_PMCBattleOverlay",
+            "BPEPartyHUD" to "BPE_BPEPartyHUD",
+            "IPKETypeBadges" to "IPKE_IPKETypeBadges",
+            "IPKEMoveEff" to "IPKE_IPKEMoveEff",
+            "MH4UMonsterIntel" to "MH4U_MH4UMonsterIntel",
+            "MHFUHunterHUD" to "MHFU_MHFUHunterHUD",
+            "FF7BattleHUD" to "FF7_FF7BattleHUD",
+            "SMVisor" to "SM_SMVisor",
+            "M1Automap" to "M1_M1Automap",
+            "GEMissionHUD" to "GE_GEMissionHUD",
+            "PSIVComboCodex" to "PSIV_PSIVComboCodex",
+            "EmuDex" to "BPRE_EmuDex",
+        )
     }
 
     private val prefs = context.getSharedPreferences("emulink_prefs", Context.MODE_PRIVATE)
@@ -39,6 +58,9 @@ class MigrationManager(
 
         if (currentVersion < 1) {
             migrateV1ToV2()
+        }
+        if (currentVersion < 2) {
+            migrateV2CompositeIds()
         }
 
         prefs.edit { putInt("migration_version", CURRENT_MIGRATION_VERSION) }
@@ -91,6 +113,49 @@ class MigrationManager(
         }
     }
 
+    /**
+     * V2→V3: composite theme folder naming. Local folders become {profileId}_{themeId}
+     * so themes with the same ID under different profiles don't collide.
+     */
+    private fun migrateV2CompositeIds() {
+        val themesDir = configManager.getThemesDir()
+        val savesDir = configManager.getSavesDir()
+
+        if (!themesDir.exists()) return
+
+        var renamedCount = 0
+
+        for ((oldId, newId) in COMPOSITE_RENAME_MAP) {
+            val oldFolder = File(themesDir, oldId)
+            val newFolder = File(themesDir, newId)
+            if (oldFolder.exists() && !newFolder.exists()) {
+                if (oldFolder.renameTo(newFolder)) {
+                    renamedCount++
+                    if (BuildConfig.DEBUG) {
+                        Log.d(TAG, "Composite rename: $oldId -> $newId")
+                    }
+                } else {
+                    Log.w(TAG, "Failed composite rename: $oldId -> $newId")
+                }
+            }
+
+            if (savesDir.exists()) {
+                renameSaveFile(savesDir, "$oldId.json", "$newId.json")
+                renameSaveFile(savesDir, "${oldId}_layout.json", "${newId}_layout.json")
+                for (screen in ScreenTarget.entries) {
+                    val screenName = screen.name.lowercase()
+                    renameSaveFile(savesDir, "${oldId}_layout_${screenName}.json", "${newId}_layout_${screenName}.json")
+                }
+            }
+        }
+
+        migrateAppConfig()
+
+        if (renamedCount > 0) {
+            Log.i(TAG, "Migration v2->v3: renamed $renamedCount theme folders to composite IDs")
+        }
+    }
+
     private fun renameSaveFile(dir: File, oldName: String, newName: String) {
         val oldFile = File(dir, oldName)
         val newFile = File(dir, newName)
@@ -106,12 +171,13 @@ class MigrationManager(
     }
 
     private fun migrateAppConfig() {
+        val allRenames = RENAME_MAP + COMPOSITE_RENAME_MAP
         val appConfig = configManager.getAppConfig()
         var changed = false
 
         val newDefaultThemes = appConfig.defaultThemes.toMutableMap()
         for ((gameId, themeId) in appConfig.defaultThemes) {
-            RENAME_MAP[themeId]?.let { newId ->
+            allRenames[themeId]?.let { newId ->
                 newDefaultThemes[gameId] = newId
                 changed = true
             }
@@ -119,7 +185,7 @@ class MigrationManager(
 
         val newDefaultOverlays = appConfig.defaultOverlays.toMutableMap()
         for ((gameId, overlayId) in appConfig.defaultOverlays) {
-            RENAME_MAP[overlayId]?.let { newId ->
+            allRenames[overlayId]?.let { newId ->
                 newDefaultOverlays[gameId] = newId
                 changed = true
             }
@@ -127,8 +193,8 @@ class MigrationManager(
 
         val newDefaultBundles = appConfig.defaultBundles.toMutableMap()
         for ((gameId, bundle) in appConfig.defaultBundles) {
-            val newPrimary = bundle.primaryOverlayId?.let { RENAME_MAP[it] }
-            val newSecondary = bundle.secondaryOverlayId?.let { RENAME_MAP[it] }
+            val newPrimary = bundle.primaryOverlayId?.let { allRenames[it] }
+            val newSecondary = bundle.secondaryOverlayId?.let { allRenames[it] }
             if (newPrimary != null || newSecondary != null) {
                 newDefaultBundles[gameId] = bundle.copy(
                     primaryOverlayId = newPrimary ?: bundle.primaryOverlayId,

@@ -704,8 +704,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         // v2 repo path: themes/{console}/{profileId}/{themeId}/
         val themePrefix = "themes/${theme.console}/${theme.profileId}/${theme.id}/"
-        // Rewrite to flat local path: themes/{themeId}/
-        val localPrefix = "themes/${theme.id}/"
+        // Composite local path: themes/{profileId}_{themeId}/
+        val localPrefix = "themes/${theme.profileId}_${theme.id}/"
         viewModelScope.launch(Dispatchers.IO) {
             val success = syncService.downloadAndExtract(
                 url = getSyncUrl(),
@@ -1119,7 +1119,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             val segment = parts[2]
                             val rest = parts[3]
                             if (segment == "widgets") "widgets/$profileId/$rest"
-                            else "themes/$segment/$rest"
+                            else "themes/${profileId}_$segment/$rest"
                         } else path
                     } else path
                 } else null

@@ -516,7 +516,8 @@ private fun ThemeCard(
 ) {
     val minVersion = theme.minAppVersion
     val isIncompatible = minVersion > appVersionCode
-    val localTheme = allInstalledThemes.find { it.id == theme.id }
+    val compositeId = "${theme.profileId}_${theme.id}"
+    val localTheme = allInstalledThemes.find { it.id == compositeId }
     val isInstalled = localTheme != null
 
     val localVersion = localTheme?.meta?.version ?: "1.0.0"
@@ -583,7 +584,7 @@ private fun ThemeCard(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(EmuLnkDimens.spacingSm)) {
                 if (isInstalled) {
                     IconButton(
-                        onClick = { onDeleteTheme(theme.id) },
+                        onClick = { onDeleteTheme(compositeId) },
                         enabled = !isSyncing,
                         modifier = Modifier.background(SurfaceBase.copy(alpha = 0.5f), CircleShape)
                     ) {
@@ -634,7 +635,7 @@ private fun LocalThemeList(
     onDeleteTheme: (String) -> Unit
 ) {
     val repoThemeIds = remember(galleryIndex) {
-        galleryIndex?.consoles?.flatMap { c -> c.games.flatMap { g -> g.themes.map { it.id } } }?.toSet() ?: emptySet()
+        galleryIndex?.consoles?.flatMap { c -> c.games.flatMap { g -> g.themes.map { "${g.profileId}_${it.id}" } } }?.toSet() ?: emptySet()
     }
     val gameNameMap = remember(galleryIndex) {
         galleryIndex?.consoles?.flatMap { c -> c.games.map { g -> g.profileId to g.name } }?.toMap() ?: emptyMap()
