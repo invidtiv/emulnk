@@ -68,6 +68,9 @@ class MemoryService(private val repository: MemoryRepository) {
         if (platform == "GCN" || platform == "WII") ByteOrder.BIG_ENDIAN
         else ByteOrder.LITTLE_ENDIAN
 
+    val platformByteOrder: ByteOrder
+        get() = byteOrderFor(_detectedConsole.value)
+
     fun start(configs: List<ConsoleConfig>) {
         this.consoleConfigs = configs
         startDetection()

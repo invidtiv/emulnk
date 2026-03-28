@@ -56,7 +56,7 @@ class OverlayBridge(
             return
         }
 
-        val buffer = ByteBuffer.allocate(size).order(ByteOrder.BIG_ENDIAN)
+        val buffer = ByteBuffer.allocate(size).order(memoryService.platformByteOrder)
         when (size) {
             1 -> buffer.put(value.toByte())
             2 -> buffer.putShort(value.toShort())
