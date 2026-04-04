@@ -127,7 +127,7 @@ class SyncService(private var rootDir: File) {
                                 version = theme.version,
                                 description = theme.description,
                                 type = theme.type ?: ThemeType.THEME,
-                                tags = theme.tags,
+                                tags = theme.tags ?: emptyList(),
                                 minAppVersion = theme.minAppVersion ?: 1,
                                 previewUrl = theme.previewUrl,
                                 console = game.console,
