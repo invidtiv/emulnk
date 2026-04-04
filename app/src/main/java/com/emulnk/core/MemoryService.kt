@@ -45,7 +45,8 @@ class MemoryService(private val repository: MemoryRepository) {
     private var currentProfile: ProfileConfig? = null
     private var currentConfidence: MatchConfidence? = null
     private var detectionJob: Job? = null
-    private var pollingJob: Job? = null
+    private var pollingJobs = java.util.concurrent.CopyOnWriteArrayList<Job>()
+    private val tierConnected = java.util.concurrent.ConcurrentHashMap<Long, Boolean>()
     private var detectionFailures = 0
     private var wasGameDetected = false
     @Volatile private var activePort: Int? = null
@@ -78,7 +79,7 @@ class MemoryService(private val repository: MemoryRepository) {
 
     fun stop() {
         detectionJob?.cancel()
-        pollingJob?.cancel()
+        stopPolling()
         activePort = null
     }
 
@@ -95,7 +96,9 @@ class MemoryService(private val repository: MemoryRepository) {
     }
 
     fun stopPolling() {
-        pollingJob?.cancel()
+        pollingJobs.forEach { it.cancel() }
+        pollingJobs.clear()
+        tierConnected.clear()
         _uiState.value = _uiState.value.copy(isConnected = false)
     }
 
@@ -163,56 +166,118 @@ class MemoryService(private val repository: MemoryRepository) {
     fun setProfile(
         profile: ProfileConfig,
         pollingIntervalMs: Long = MemoryConstants.POLLING_INTERVAL_MS,
-        confidence: MatchConfidence = MatchConfidence.MATCHED
+        confidence: MatchConfidence = MatchConfidence.MATCHED,
+        uses: Set<String>? = null
     ) {
         currentProfile = profile
         currentConfidence = confidence
         _matchConfidence.value = confidence
-        startPolling(profile, pollingIntervalMs, confidence)
+        startPolling(profile, pollingIntervalMs, confidence, uses)
     }
 
-    private fun startPolling(profile: ProfileConfig, pollingIntervalMs: Long, confidence: MatchConfidence) {
-        pollingJob?.cancel()
-        pollingJob = serviceScope.launch {
-            while (isActive) {
-                val newValues = mutableMapOf<String, Any>()
-                val rawValues = mutableMapOf<String, Any>()
-                var successCount = 0
-                val gameId = _detectedGameId.value
-                val byteOrder = byteOrderFor(profile.platform)
+    // Unknown or null pollRate defaults to the profile's polling interval
+    private fun tierIntervalFor(bundleName: String?, profile: ProfileConfig, defaultInterval: Long): Long {
+        val pollRate = bundleName?.let { profile.bundles?.get(it)?.pollRate }
+        return when (pollRate) {
+            "high" -> MemoryConstants.POLL_TIER_HIGH_MS
+            "medium" -> defaultInterval
+            "low" -> MemoryConstants.POLL_TIER_LOW_MS
+            else -> defaultInterval
+        }
+    }
 
-                for (point in profile.dataPoints.orEmpty()) {
-                    // In FALLBACK mode, skip unstable data points
-                    if (confidence == MatchConfidence.FALLBACK && !point.stable) continue
+    private fun startPolling(profile: ProfileConfig, pollingIntervalMs: Long, confidence: MatchConfidence, uses: Set<String>? = null) {
+        pollingJobs.forEach { it.cancel() }
+        pollingJobs.clear()
+        tierConnected.clear()
 
-                    val addressLong = addressResolver.resolve(point, profile, gameId, byteOrder) ?: continue
-                    val rawData = repository.readMemory(addressLong, point.size)
+        // Group eligible data points by poll tier interval
+        val tiers = mutableMapOf<Long, MutableList<DataPoint>>()
+        for (point in profile.dataPoints.orEmpty()) {
+            if (uses != null && point.id !in uses && point.bundle !in uses) continue
+            if (confidence == MatchConfidence.FALLBACK && !point.stable) continue
+            val interval = tierIntervalFor(point.bundle, profile, pollingIntervalMs)
+            tiers.getOrPut(interval) { mutableListOf() }.add(point)
+        }
 
-                    if (rawData != null) {
-                        val rawNum = parseValue(rawData, point.type)
-                        rawValues[point.id] = rawNum
+        // Launch one coroutine per tier
+        for ((interval, points) in tiers) {
+            val job = serviceScope.launch {
+                val tierPointIds = points.map { it.id }.toSet()
+                var tierFailureCount = 0
 
-                        var processedValue = rawNum
-                        val formula = point.formula
-                        if (formula != null && rawNum is Number) {
-                            processedValue = MathEngine.evaluate(formula, rawNum.toDouble())
-                        }
+                while (isActive) {
+                    val tierValues = mutableMapOf<String, Any>()
+                    val tierRaw = mutableMapOf<String, Any>()
+                    var successCount = 0
+                    val gameId = _detectedGameId.value
+                    val byteOrder = byteOrderFor(profile.platform)
 
-                        newValues[point.id] = processedValue
-                        successCount++
+                    // Phase 1: Resolve
+                    val resolved = mutableListOf<Triple<DataPoint, Long, Int>>()
+                    for (point in points) {
+                        val addr = addressResolver.resolve(point, profile, gameId, byteOrder) ?: continue
+                        resolved.add(Triple(point, addr, point.size))
                     }
+
+                    // Phase 2: Batch read or sequential fallback
+                    val results: List<ByteArray?> = if (resolved.isNotEmpty() && repository.supportsBatch()) {
+                        repository.readBatch(resolved.map { Pair(it.second, it.third) })
+                    } else {
+                        resolved.map { repository.readMemory(it.second, it.third) }
+                    }
+
+                    // Phase 3: Parse
+                    for (idx in resolved.indices) {
+                        val rawData = results[idx]
+                        val point = resolved[idx].first
+                        if (rawData != null) {
+                            val rawNum = parseValue(rawData, point.type)
+                            tierRaw[point.id] = rawNum
+                            var processedValue = rawNum
+                            val formula = point.formula
+                            if (formula != null && rawNum is Number) {
+                                processedValue = MathEngine.evaluate(formula, rawNum.toDouble())
+                            }
+                            tierValues[point.id] = processedValue
+                            successCount++
+                        }
+                    }
+
+                    // Merge into shared state, tolerating transient failures
+                    tierConnected[interval] = successCount > 0
+
+                    if (successCount > 0) {
+                        tierFailureCount = 0
+                    } else {
+                        tierFailureCount++
+                    }
+                    val shouldClear = successCount == 0 && tierFailureCount >= 3
+
+                    if (successCount > 0 || shouldClear) {
+                        _uiState.update { current ->
+                            val mergedValues = current.values.toMutableMap()
+                            val mergedRaw = current.raw.toMutableMap()
+                            for (id in tierPointIds) { mergedValues.remove(id); mergedRaw.remove(id) }
+                            if (!shouldClear) {
+                                mergedValues.putAll(tierValues)
+                                mergedRaw.putAll(tierRaw)
+                            }
+
+                            current.copy(
+                                isConnected = tierConnected.values.any { it },
+                                values = mergedValues,
+                                raw = mergedRaw,
+                                confidence = currentConfidence?.name,
+                                gameHash = _detectedGameHash.value
+                            )
+                        }
+                    }
+
+                    delay(interval)
                 }
-
-                _uiState.value = _uiState.value.copy(
-                    isConnected = successCount > 0,
-                    values = newValues,
-                    raw = rawValues,
-                    confidence = currentConfidence?.name,
-                    gameHash = _detectedGameHash.value
-                )
-
-                delay(pollingIntervalMs)
             }
+            pollingJobs.add(job)
         }
     }
 

@@ -22,7 +22,7 @@ object WebInterceptor {
 
     private val MIME_MAP = mapOf(
         "html" to "text/html", "css" to "text/css", "js" to "application/javascript",
-        "json" to "application/json",
+        "json" to "application/json", "map" to "application/json",
         "png" to "image/png", "jpg" to "image/jpeg", "jpeg" to "image/jpeg",
         "gif" to "image/gif", "webp" to "image/webp",
         "svg" to "image/svg+xml", "mp3" to "audio/mpeg", "wav" to "audio/wav",

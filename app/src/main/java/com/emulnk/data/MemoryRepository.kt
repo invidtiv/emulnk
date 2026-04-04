@@ -19,10 +19,13 @@ class MemoryRepository(
 ) {
     private var address: InetAddress = InetAddress.getByName(host)
     private var socket: DatagramSocket? = null
+    private var batchSupported: Boolean? = null
 
     companion object {
         private const val TAG = "MemoryRepository"
         private const val V2_RECEIVE_BUFFER_SIZE = 1024
+        private const val BATCH_MAGIC_E = 0x45.toByte() // 'E'
+        private const val BATCH_MAGIC_L = 0x4C.toByte() // 'L'
     }
 
     @Synchronized
@@ -31,6 +34,7 @@ class MemoryRepository(
             this.port = newPort
             socket?.close()
             socket = null
+            batchSupported = null
         }
     }
 
@@ -41,6 +45,7 @@ class MemoryRepository(
             this.address = newAddress
             socket?.close()
             socket = null
+            batchSupported = null
         }
     }
 
@@ -111,6 +116,7 @@ class MemoryRepository(
      */
     @Synchronized
     fun identifyV2(): String? {
+        batchSupported = null
         val currentSocket = getSocket()
         val savedTimeout = currentSocket.soTimeout
         return try {
@@ -137,6 +143,99 @@ class MemoryRepository(
             null
         } finally {
             currentSocket.soTimeout = savedTimeout
+        }
+    }
+
+    @Synchronized
+    fun supportsBatch(): Boolean {
+        batchSupported?.let { return it }
+
+        val requestSize = 4 + 1 * 8
+        val buffer = ByteBuffer.allocate(requestSize).apply {
+            order(ByteOrder.LITTLE_ENDIAN)
+            put(BATCH_MAGIC_E)
+            put(BATCH_MAGIC_L)
+            putShort(1)
+            putInt(0)   // addr 0
+            putInt(1)   // size 1
+        }
+
+        return try {
+            val currentSocket = getSocket()
+            drainStalePackets(currentSocket)
+            currentSocket.send(DatagramPacket(buffer.array(), requestSize, address, port))
+
+            val recv = ByteArray(64)
+            val pkt = DatagramPacket(recv, recv.size)
+            currentSocket.receive(pkt)
+
+            val supported = pkt.length >= 4 &&
+                recv[0] == BATCH_MAGIC_E && recv[1] == BATCH_MAGIC_L
+            batchSupported = supported
+            supported
+        } catch (e: Exception) {
+            batchSupported = false
+            false
+        }
+    }
+
+    @Synchronized
+    fun readBatch(requests: List<Pair<Long, Int>>): List<ByteArray?> {
+        if (requests.isEmpty()) return emptyList()
+
+        val count = requests.size.coerceAtMost(MemoryConstants.BATCH_MAX_ENTRIES)
+        if (requests.size > MemoryConstants.BATCH_MAX_ENTRIES) {
+            Log.w(TAG, "Batch truncated: ${requests.size} > ${MemoryConstants.BATCH_MAX_ENTRIES}")
+        }
+
+        // Batch wire format: "EL" + count:u16le + N x (addr:u32le + size:u32le)
+        return try {
+            val requestSize = 4 + count * 8
+            val buffer = ByteBuffer.allocate(requestSize).apply {
+                order(ByteOrder.LITTLE_ENDIAN)
+                put(BATCH_MAGIC_E)
+                put(BATCH_MAGIC_L)
+                putShort(count.toShort())
+                for (i in 0 until count) {
+                    putInt(requests[i].first.toInt())
+                    putInt(requests[i].second)
+                }
+            }
+
+            val currentSocket = getSocket()
+            drainStalePackets(currentSocket)
+            currentSocket.send(DatagramPacket(buffer.array(), requestSize, address, port))
+
+            val receiveBuffer = ByteArray(MemoryConstants.BATCH_RESPONSE_BUFFER)
+            val receivePacket = DatagramPacket(receiveBuffer, receiveBuffer.size)
+            currentSocket.receive(receivePacket)
+
+            val resp = ByteBuffer.wrap(receivePacket.data, 0, receivePacket.length)
+                .order(ByteOrder.LITTLE_ENDIAN)
+
+            if (resp.remaining() < 4) return List(count) { null }
+            if (resp.get() != BATCH_MAGIC_E || resp.get() != BATCH_MAGIC_L)
+                return List(count) { null }
+
+            val respCount = resp.short.toInt() and 0xFFFF
+            val results = mutableListOf<ByteArray?>()
+
+            for (i in 0 until respCount.coerceAtMost(count)) {
+                if (resp.remaining() < 2) { results.add(null); continue }
+                val len = resp.short.toInt() and 0xFFFF
+                if (len == 0 || resp.remaining() < len) { results.add(null); continue }
+                val data = ByteArray(len)
+                resp.get(data)
+                results.add(data)
+            }
+
+            while (results.size < count) results.add(null)
+            results
+        } catch (e: Exception) {
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "readBatch(${requests.size} entries): ${e.message}")
+            }
+            List(count) { null }
         }
     }
 

@@ -658,7 +658,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     consoleInterval ?: MemoryConstants.MIN_POLLING_INTERVAL_MS,
                     theme.pollingInterval ?: MemoryConstants.POLLING_INTERVAL_MS
                 ).coerceIn(MemoryConstants.MIN_POLLING_INTERVAL_MS, MemoryConstants.MAX_POLLING_INTERVAL_MS)
-                memoryService.setProfile(profile, effectiveInterval, confidence = confidence)
+                memoryService.setProfile(
+                    profile, effectiveInterval,
+                    confidence = confidence,
+                    uses = theme.uses?.toSet()
+                )
             }
         }
     }

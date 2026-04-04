@@ -45,5 +45,8 @@ data class BundleConfig(
 
     // Pointer-resolved base: follow this chain to find the base at runtime
     val pointer: String? = null,
-    val chain: List<String>? = null
+    val chain: List<String>? = null,
+
+    // Poll tier: "high" (50ms), "medium" (200ms), "low" (1000ms). Null defaults to medium.
+    val pollRate: String? = null
 )

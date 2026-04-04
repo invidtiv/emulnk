@@ -23,7 +23,8 @@ data class ThemeConfig(
     val type: String? = null,    // "theme", "overlay", or "bundle"; null defaults to "theme" (Gson bypasses Kotlin defaults)
     val widgets: List<WidgetConfig>? = null, // Widget definitions for overlay-type themes
     val pollingInterval: Long? = null, // Preferred polling rate in ms (null = default 200ms)
-    val screenTarget: ScreenTarget? = null // Preferred screen for dual-screen (null = primary)
+    val screenTarget: ScreenTarget? = null, // Preferred screen for dual-screen (null = primary)
+    val uses: List<String>? = null // Data point IDs or bundle names this theme reads (null = all)
 )
 
 /** Resolves the effective type, defaulting null to "theme". */
@@ -73,6 +74,6 @@ data class ThemeSettingSchema(
     val type: String,        // "toggle", "color", "select"
     val default: String,     // Default value as string
     val options: List<String>? = null, // For "select" type
-    val category: String? = null, // e.g., "Party", "Battle" — groups settings in UI
+    val category: String? = null, // e.g. "Party", "Battle". Groups settings in UI
     val hidden: Boolean? = null // Hidden settings are not shown in the settings dialog
 )

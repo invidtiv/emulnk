@@ -86,7 +86,17 @@ object MemoryConstants {
     const val IDENTITY_REFRESH_FAILURES = 10
 
     /** Maximum single read size in bytes */
-    const val MAX_READ_SIZE = 2048
+    const val MAX_READ_SIZE = 4096
+
+    /** Maximum entries in a batch read request */
+    const val BATCH_MAX_ENTRIES = 256
+
+    /** Response buffer size for batch reads (16 KB) */
+    const val BATCH_RESPONSE_BUFFER = 16384
+
+    /** Poll tier intervals */
+    const val POLL_TIER_HIGH_MS = 50L
+    const val POLL_TIER_LOW_MS = 1000L
 
     /** Maximum valid 32-bit address */
     const val MAX_ADDRESS = 0xFFFFFFFFL
