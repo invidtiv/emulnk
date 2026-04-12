@@ -162,6 +162,9 @@ object SyncConstants {
 
     /** Initial retry delay in milliseconds */
     const val INITIAL_RETRY_DELAY_MS = 1000L
+
+    /** Overall repo sync timeout in milliseconds (60s) */
+    const val SYNC_TIMEOUT_MS = 60_000L
 }
 
 object BridgeConstants {

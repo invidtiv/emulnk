@@ -1,6 +1,13 @@
 package com.emulnk.ui.screens
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -29,6 +36,8 @@ import com.emulnk.model.ThemeType
 import com.emulnk.model.resolvedType
 import com.emulnk.model.SavedOverlayConfig
 import com.emulnk.model.MatchConfidence
+import com.emulnk.ui.components.SyncIconType
+import com.emulnk.ui.components.SyncResultIcon
 import com.emulnk.ui.components.PairingBottomSheet
 import com.emulnk.ui.components.ThemeCard
 import com.emulnk.ui.theme.*
@@ -57,6 +66,7 @@ fun LauncherScreen(
     onOpenGallery: () -> Unit,
     onOpenSettings: () -> Unit,
     onSync: () -> Unit,
+    onShowSync: () -> Unit = {},
     uninstalledThemeCount: Int = 0,
     hasGalleryWidgets: Boolean = false,
     onJumpToGallery: () -> Unit = {},
@@ -67,7 +77,9 @@ fun LauncherScreen(
     showBuilderButton: Boolean = false,
     onLaunchBuilder: () -> Unit = {},
     confidence: MatchConfidence = MatchConfidence.MATCHED,
-    gameHash: String? = null
+    gameHash: String? = null,
+    syncError: Boolean = false,
+    syncSuccess: Boolean = false
 ) {
     var showBundleSheet by remember { mutableStateOf(false) }
     var pendingTheme by remember { mutableStateOf<ThemeConfig?>(null) }
@@ -116,9 +128,32 @@ fun LauncherScreen(
                 IconButton(onClick = onOpenGallery) {
                     Icon(painter = painterResource(R.drawable.ic_palette), contentDescription = stringResource(R.string.gallery), tint = TextPrimary, modifier = Modifier.size(20.dp))
                 }
-                IconButton(onClick = onSync, enabled = !isSyncing) {
-                    if (isSyncing) CircularProgressIndicator(modifier = Modifier.size(18.dp), color = BrandPurple, strokeWidth = 2.dp)
-                    else Icon(painter = painterResource(R.drawable.ic_sync), contentDescription = stringResource(R.string.sync), tint = TextPrimary, modifier = Modifier.size(20.dp))
+                IconButton(onClick = if (isSyncing) onShowSync else onSync) {
+                    if (isSyncing) {
+                        Box(modifier = Modifier.size(20.dp), contentAlignment = Alignment.Center) {
+                            val inlineState = when {
+                                syncSuccess -> 1  // checkmark
+                                syncError -> 2    // warning
+                                else -> 0         // spinner
+                            }
+                            AnimatedContent(
+                                targetState = inlineState,
+                                transitionSpec = {
+                                    (fadeIn(tween(250)) + scaleIn(initialScale = 0.5f, animationSpec = tween(250)))
+                                        .togetherWith(fadeOut(tween(150)) + scaleOut(targetScale = 0.5f, animationSpec = tween(150)))
+                                },
+                                label = "inlineSyncIcon"
+                            ) { state ->
+                                when (state) {
+                                    1 -> SyncResultIcon(type = SyncIconType.Checkmark, modifier = Modifier.size(18.dp))
+                                    2 -> SyncResultIcon(type = SyncIconType.Warning, modifier = Modifier.size(18.dp))
+                                    else -> CircularProgressIndicator(modifier = Modifier.size(18.dp), color = BrandPurple, strokeWidth = 2.dp)
+                                }
+                            }
+                        }
+                    } else {
+                        Icon(painter = painterResource(R.drawable.ic_sync), contentDescription = stringResource(R.string.sync), tint = TextPrimary, modifier = Modifier.size(20.dp))
+                    }
                 }
             }
         }
@@ -352,4 +387,3 @@ fun LauncherScreen(
         )
     }
 }
-

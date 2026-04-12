@@ -11,6 +11,7 @@ import com.emulnk.core.DisplayHelper
 import com.emulnk.core.OverlayService
 import com.emulnk.core.SyncService
 import com.emulnk.core.MemoryConstants
+import com.emulnk.core.SyncConstants
 import com.emulnk.core.TelemetryConstants
 import com.emulnk.core.TelemetryService
 import com.emulnk.data.ConfigManager
@@ -51,6 +52,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -146,6 +148,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _syncMessage = MutableStateFlow("")
     val syncMessage: StateFlow<String> = _syncMessage
+
+    private val _syncTitle = MutableStateFlow("Syncing Repository")
+    val syncTitle: StateFlow<String> = _syncTitle
+
+    private val _syncDismissed = MutableStateFlow(false)
+    val syncDismissed: StateFlow<Boolean> = _syncDismissed
+
+    private val _syncError = MutableStateFlow(false)
+    val syncError: StateFlow<Boolean> = _syncError
+
+    private val _syncSuccess = MutableStateFlow(false)
+    val syncSuccess: StateFlow<Boolean> = _syncSuccess
+
+    private var syncJob: Job? = null
+
+    fun dismissSync() { _syncDismissed.value = true }
+    fun showSync() { _syncDismissed.value = false }
+    fun cancelSync() {
+        syncJob?.cancel()
+        _isSyncing.value = false
+        _syncDismissed.value = false
+        _syncTitle.value = "Syncing Repository"
+    }
 
     private val _repoIndex = MutableStateFlow<GalleryIndex?>(null)
     val repoIndex: StateFlow<GalleryIndex?> = _repoIndex
@@ -1132,6 +1157,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun syncRepository() {
         if (_isSyncing.value) return
         _isSyncing.value = true
+        _syncDismissed.value = false
+        _syncError.value = false
+        _syncSuccess.value = false
+        _syncTitle.value = "Syncing Repository"
         _syncMessage.value = "Syncing configs..."
 
         val currentRootDir = configManager.getRootDir()
@@ -1141,36 +1170,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         val isDevSync = _appConfig.value.devMode && _appConfig.value.devUrl.isNotBlank()
 
-        viewModelScope.launch(Dispatchers.IO) {
-            val success = syncService.downloadAndExtract(
-                url = getSyncUrl(),
-                stripRoot = false,
-                pathFilter = if (isDevSync) null else { path ->
-                    path == "index.json" ||
-                    path == "consoles.json" ||
-                    path == "hashes.json" ||
-                    path.startsWith("profiles/")
-                },
-                pathRewriter = if (isDevSync) { path ->
-                    if (path.startsWith("themes/")) {
-                        // themes/GBA/BPE/widgets/... → widgets/BPE/...
-                        // themes/GBA/BPE/ThemeId/...  → themes/ThemeId/...
-                        val parts = path.removePrefix("themes/").split("/", limit = 4)
-                        if (parts.size >= 4) {
-                            val profileId = parts[1]
-                            val segment = parts[2]
-                            val rest = parts[3]
-                            if (segment == "widgets") "widgets/$profileId/$rest"
-                            else "themes/${profileId}_$segment/$rest"
+        syncJob = viewModelScope.launch(Dispatchers.IO) {
+            val success = withTimeoutOrNull(SyncConstants.SYNC_TIMEOUT_MS) {
+                syncService.downloadAndExtract(
+                    url = getSyncUrl(),
+                    stripRoot = false,
+                    pathFilter = if (isDevSync) null else { path ->
+                        path == "index.json" ||
+                        path == "consoles.json" ||
+                        path == "hashes.json" ||
+                        path.startsWith("profiles/")
+                    },
+                    pathRewriter = if (isDevSync) { path ->
+                        if (path.startsWith("themes/")) {
+                            val parts = path.removePrefix("themes/").split("/", limit = 4)
+                            if (parts.size >= 4) {
+                                val profileId = parts[1]
+                                val segment = parts[2]
+                                val rest = parts[3]
+                                if (segment == "widgets") "widgets/$profileId/$rest"
+                                else "themes/${profileId}_$segment/$rest"
+                            } else path
                         } else path
-                    } else path
-                } else null
-            ) { message ->
-                _syncMessage.value = message
-                viewModelScope.launch { addDebugLog(message) }
+                    } else null
+                ) { message ->
+                    _syncMessage.value = message
+                    viewModelScope.launch { addDebugLog(message) }
+                }
             }
-            
-            _isSyncing.value = false
+
+            if (success == null) {
+                _syncError.value = true
+                _syncMessage.value = "Sync timed out"
+                android.util.Log.e(TAG, "Repo sync timed out after ${SyncConstants.SYNC_TIMEOUT_MS}ms")
+                delay(3000) // hold error state visible
+                _isSyncing.value = false
+                return@launch
+            }
 
             if (success) {
                 if (BuildConfig.DEBUG) {
@@ -1179,7 +1215,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 configManager.loadHashRegistry()
                 refreshAllInstalledThemes()
 
-                // Re-resolve game profile with updated hash registry
                 val hash = memoryService.detectedGameHash.value
                 val gameId = detectedGameId.value
                 val console = detectedConsole.value
@@ -1200,7 +1235,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val repoUrl = _appConfig.value.repoUrlShim
                     _rawBaseUrl.value = syncService.deriveRawBaseUrl(repoUrl)
                     _repoIndex.value = syncService.fetchRepoIndex(repoUrl)
-                } catch (_: Exception) { /* index fetch failure shouldn't break sync */ }
+                } catch (_: Exception) {}
+
+                _syncSuccess.value = true
+                _syncMessage.value = "Sync complete"
 
                 viewModelScope.launch {
                     memoryService.stop()
@@ -1214,9 +1252,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         refreshThemesForGame(gid, con)
                     }
                 }
+
+                delay(1500) // hold success state visible
             } else {
+                _syncError.value = true
+                _syncMessage.value = "Sync failed"
                 android.util.Log.e(TAG, "Sync failed.")
+                delay(3000) // hold error state visible
             }
+            _isSyncing.value = false
         }
     }
 

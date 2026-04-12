@@ -142,6 +142,10 @@ class MainActivity : ComponentActivity() {
                 val repoIndex by vm.repoIndex.collectAsState()
                 val rawBaseUrl by vm.rawBaseUrl.collectAsState()
                 val syncMessage by vm.syncMessage.collectAsState()
+                val syncTitle by vm.syncTitle.collectAsState()
+                val syncDismissed by vm.syncDismissed.collectAsState()
+                val syncError by vm.syncError.collectAsState()
+                val syncSuccess by vm.syncSuccess.collectAsState()
                 val allInstalledThemes by vm.allInstalledThemes.collectAsState()
                 val isRootPathSet by vm.isRootPathSet.collectAsState()
                 val storeWidgets by vm.storeWidgets.collectAsState()
@@ -409,6 +413,7 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onOpenSettings = { showAppSettings = true },
                                 onSync = { vm.syncRepository() },
+                                onShowSync = { vm.showSync() },
                                 uninstalledThemeCount = uninstalledThemeCount,
                                 hasGalleryWidgets = hasGalleryWidgets,
                                 onJumpToGallery = {
@@ -435,6 +440,8 @@ class MainActivity : ComponentActivity() {
                                 },
                                 confidence = currentConfidence,
                                 gameHash = gameHash,
+                                syncError = syncError,
+                                syncSuccess = syncSuccess,
                             )
                         }
                         is Screen.Gallery -> {
@@ -517,8 +524,15 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    if (isSyncing) {
-                        SyncProgressDialog(message = syncMessage)
+                    if (isSyncing && !syncDismissed) {
+                        SyncProgressDialog(
+                            title = syncTitle,
+                            message = syncMessage,
+                            isError = syncError,
+                            isSuccess = syncSuccess,
+                            onDismiss = { vm.dismissSync() },
+                            onCancel = { vm.cancelSync() }
+                        )
                     }
 
                     if (showAppSettings) {

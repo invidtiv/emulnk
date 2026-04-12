@@ -12,9 +12,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -316,27 +328,201 @@ fun DebugOverlay(logs: List<String>, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun SyncProgressDialog(message: String) {
-    Dialog(onDismissRequest = { }) {
+fun SyncProgressDialog(
+    title: String = "Syncing Repository",
+    message: String,
+    isError: Boolean = false,
+    isSuccess: Boolean = false,
+    onDismiss: (() -> Unit)? = null,
+    onCancel: (() -> Unit)? = null
+) {
+    val state = when {
+        isSuccess -> SyncDialogState.Success
+        isError -> SyncDialogState.Error
+        else -> SyncDialogState.Syncing
+    }
+
+    var showErrorDetail by remember { mutableStateOf(false) }
+
+    LaunchedEffect(state) {
+        showErrorDetail = false
+    }
+
+    Dialog(onDismissRequest = { onDismiss?.invoke() }) {
         Card(
-            modifier = Modifier.fillMaxWidth().padding(EmuLnkDimens.spacingLg),
             shape = RoundedCornerShape(EmuLnkDimens.cornerLg),
             colors = CardDefaults.cardColors(containerColor = SurfaceRaised)
         ) {
             Column(
-                modifier = Modifier.padding(EmuLnkDimens.spacingXl),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+                modifier = Modifier
+                    .widthIn(min = 240.dp)
+                    .padding(horizontal = EmuLnkDimens.spacingXl, vertical = EmuLnkDimens.spacingLg),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("Syncing Repository", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                Spacer(modifier = Modifier.height(EmuLnkDimens.spacingXl))
-                CircularProgressIndicator(color = BrandPurple)
-                Spacer(modifier = Modifier.height(EmuLnkDimens.spacingXl))
+                Text(title, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                Spacer(modifier = Modifier.height(EmuLnkDimens.spacingMd))
+
+                Box(
+                    modifier = Modifier.size(48.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    AnimatedContent(
+                        targetState = state,
+                        transitionSpec = {
+                            (fadeIn(
+                                animationSpec = tween(300)
+                            ) + scaleIn(
+                                initialScale = 0.6f,
+                                animationSpec = tween(300)
+                            )).togetherWith(
+                                fadeOut(
+                                    animationSpec = tween(200)
+                                ) + scaleOut(
+                                    targetScale = 0.6f,
+                                    animationSpec = tween(200)
+                                )
+                            )
+                        },
+                        label = "syncStateIcon"
+                    ) { targetState ->
+                        when (targetState) {
+                            SyncDialogState.Syncing -> {
+                                CircularProgressIndicator(
+                                    color = BrandPurple,
+                                    modifier = Modifier.size(28.dp),
+                                    strokeWidth = 3.dp
+                                )
+                            }
+                            SyncDialogState.Success -> {
+                                SyncResultIcon(
+                                    type = SyncIconType.Checkmark,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                            }
+                            SyncDialogState.Error -> {
+                                SyncResultIcon(
+                                    type = SyncIconType.Warning,
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clickable { showErrorDetail = !showErrorDetail }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(EmuLnkDimens.spacingMd))
+
+                val messageColor = when (state) {
+                    SyncDialogState.Success -> StatusSuccess
+                    SyncDialogState.Error -> StatusError
+                    else -> TextSecondary
+                }
                 Text(
                     text = message,
-                    fontSize = 14.sp,
-                    color = TextSecondary,
-                    textAlign = TextAlign.Center
+                    fontSize = 12.sp,
+                    color = messageColor,
+                    textAlign = TextAlign.Center,
+                    fontWeight = if (state != SyncDialogState.Syncing) FontWeight.SemiBold else FontWeight.Normal
+                )
+
+                AnimatedVisibility(
+                    visible = showErrorDetail && state == SyncDialogState.Error,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    Text(
+                        text = "Check your internet connection or repository URL in Settings.",
+                        fontSize = 11.sp,
+                        color = TextTertiary,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = EmuLnkDimens.spacingSm, bottom = EmuLnkDimens.spacingXs)
+                    )
+                }
+
+                AnimatedVisibility(
+                    visible = state == SyncDialogState.Syncing && (onDismiss != null || onCancel != null),
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(EmuLnkDimens.spacingSm),
+                        modifier = Modifier.padding(top = EmuLnkDimens.spacingSm)
+                    ) {
+                        if (onDismiss != null) {
+                            TextButton(onClick = onDismiss) {
+                                Text("Background", color = BrandPurple, fontSize = 12.sp)
+                            }
+                        }
+                        if (onCancel != null) {
+                            TextButton(onClick = onCancel) {
+                                Text("Cancel", color = TextSecondary, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private enum class SyncDialogState { Syncing, Success, Error }
+enum class SyncIconType { Checkmark, Warning }
+
+@Composable
+fun SyncResultIcon(
+    type: SyncIconType,
+    modifier: Modifier = Modifier
+) {
+    val color = when (type) {
+        SyncIconType.Checkmark -> StatusSuccess
+        SyncIconType.Warning -> StatusWarning
+    }
+
+    Canvas(modifier = modifier) {
+        val cx = size.width / 2f
+        val cy = size.height / 2f
+        val r = size.minDimension / 2f
+
+        drawCircle(
+            color = color.copy(alpha = 0.15f),
+            radius = r,
+            center = Offset(cx, cy)
+        )
+
+        drawCircle(
+            color = color,
+            radius = r,
+            center = Offset(cx, cy),
+            style = Stroke(width = 2.dp.toPx())
+        )
+
+        val stroke = Stroke(
+            width = 2.5.dp.toPx(),
+            cap = StrokeCap.Round
+        )
+
+        when (type) {
+            SyncIconType.Checkmark -> {
+                val path = Path().apply {
+                    moveTo(cx - r * 0.30f, cy + r * 0.02f)
+                    lineTo(cx - r * 0.05f, cy + r * 0.28f)
+                    lineTo(cx + r * 0.32f, cy - r * 0.22f)
+                }
+                drawPath(path, color = color, style = stroke)
+            }
+            SyncIconType.Warning -> {
+                drawLine(
+                    color = color,
+                    start = Offset(cx, cy - r * 0.35f),
+                    end = Offset(cx, cy + r * 0.08f),
+                    strokeWidth = 2.5.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+                drawCircle(
+                    color = color,
+                    radius = 2.dp.toPx(),
+                    center = Offset(cx, cy + r * 0.32f)
                 )
             }
         }
